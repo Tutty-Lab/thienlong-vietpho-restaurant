@@ -2,6 +2,14 @@ import { useState } from "react";
 import type { UseScheduleReturn } from "../hooks/useSchedule";
 import type { EmploymentType } from "../types";
 import { splitTargetHours } from "../lib/splitTargetHours";
+import {
+  azubiConfiguredWeeklyHours,
+  azubiExceedsWeeklyMaximum,
+  azubiMonthlyMinutes,
+  azubiWeeklyMaximum,
+  azubiWeeklyHours,
+  DEFAULT_AZUBI_CONFIG,
+} from "../lib/azubi";
 
 const inputClass =
   "rounded border border-slate-300 px-2 py-1 text-sm focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-500";
@@ -27,6 +35,8 @@ export function EmployeesTab({ store }: { store: UseScheduleReturn }) {
   const [name, setName] = useState("");
   const [type, setType] = useState<EmploymentType>("VOLLZEIT");
   const [hours, setHours] = useState(176);
+  const newAzubiHours =
+    azubiMonthlyMinutes(DEFAULT_AZUBI_CONFIG, schedule.year, schedule.month) / 60;
 
   return (
     <section className="rounded-lg bg-white border border-slate-200 p-4 sm:p-5 shadow-sm">
@@ -52,19 +62,29 @@ export function EmployeesTab({ store }: { store: UseScheduleReturn }) {
           >
             <option value="VOLLZEIT">Toàn thời gian</option>
             <option value="TEILZEIT">Bán thời gian</option>
+            <option value="AZUBI">Azubi (học nghề)</option>
           </select>
         </label>
-        <label className="flex flex-col sm:w-32">
-          <span className="text-xs text-slate-600 mb-1">Giờ định mức</span>
-          <input
-            type="number"
-            min={0}
-            step={1}
-            className={`${inputClass} w-full`}
-            value={hours}
-            onChange={(e) => setHours(Number(e.target.value))}
-          />
-        </label>
+        {type === "AZUBI" ? (
+          <div className="flex flex-col sm:w-40" aria-live="polite">
+            <span className="text-xs text-slate-600 mb-1">Giờ định mức</span>
+            <div className="rounded border border-slate-200 bg-white px-2 py-1 text-sm text-slate-700">
+              <b>{newAzubiHours}h</b> · tự động
+            </div>
+          </div>
+        ) : (
+          <label className="flex flex-col sm:w-32">
+            <span className="text-xs text-slate-600 mb-1">Giờ định mức</span>
+            <input
+              type="number"
+              min={0}
+              step={1}
+              className={`${inputClass} w-full`}
+              value={hours}
+              onChange={(e) => setHours(Number(e.target.value))}
+            />
+          </label>
+        )}
         <button
           onClick={() => {
             addEmployee(name, type, hours);
@@ -84,7 +104,18 @@ export function EmployeesTab({ store }: { store: UseScheduleReturn }) {
       ) : (
         <div className="space-y-2">
           {schedule.employees.map((emp) => {
-            const info = splitInfo(emp.targetMinutes / 60, emp.employmentType);
+            const isAzubi = emp.employmentType === "AZUBI";
+            const azubiExceeded = isAzubi && azubiExceedsWeeklyMaximum(emp.azubi);
+            const info = isAzubi
+              ? {
+                  ok: !azubiExceeded,
+                  text: azubiExceeded
+                    ? `⚠ ${azubiConfiguredWeeklyHours(emp.azubi)}h > max ${azubiWeeklyMaximum(
+                        emp.azubi?.inSchoolTerm ?? true,
+                      )}h`
+                    : `tự động · ${azubiWeeklyHours(emp.azubi)}h/tuần`,
+                }
+              : splitInfo(emp.targetMinutes / 60, emp.employmentType);
             const tooMany = emp.targetMinutes / 60 > WARN_HOURS;
             return (
               <div
@@ -112,25 +143,35 @@ export function EmployeesTab({ store }: { store: UseScheduleReturn }) {
                   >
                     <option value="VOLLZEIT">Toàn thời gian</option>
                     <option value="TEILZEIT">Bán thời gian</option>
+                    <option value="AZUBI">Azubi (học nghề)</option>
                   </select>
                 </label>
                 <label className="flex flex-col sm:w-32">
                   <span className="text-xs text-slate-500 mb-1 sm:hidden">Giờ định mức</span>
-                  <div className="flex items-center gap-1">
-                    <input
-                      type="number"
-                      min={0}
-                      step={1}
-                      className={`${inputClass} w-full`}
-                      value={emp.targetMinutes / 60}
-                      onChange={(e) =>
-                        updateEmployee(emp.id, {
-                          targetMinutes: Math.max(0, Math.round(Number(e.target.value))) * 60,
-                        })
-                      }
-                    />
-                    <span className="text-slate-400">h</span>
-                  </div>
+                  {isAzubi ? (
+                    <div
+                      className="rounded border border-slate-200 bg-slate-50 px-2 py-1 text-sm text-slate-700"
+                      title="Được tính tự động theo số giờ mỗi tuần và số ngày của tháng"
+                    >
+                      <b>{emp.targetMinutes / 60}h</b> · tự động
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-1">
+                      <input
+                        type="number"
+                        min={0}
+                        step={1}
+                        className={`${inputClass} w-full`}
+                        value={emp.targetMinutes / 60}
+                        onChange={(e) =>
+                          updateEmployee(emp.id, {
+                            targetMinutes: Math.max(0, Math.round(Number(e.target.value))) * 60,
+                          })
+                        }
+                      />
+                      <span className="text-slate-400">h</span>
+                    </div>
+                  )}
                 </label>
                 <label className="flex items-center gap-2 sm:pb-1.5 cursor-pointer select-none">
                   <input
@@ -146,7 +187,15 @@ export function EmployeesTab({ store }: { store: UseScheduleReturn }) {
                   </span>
                 </label>
                 <div className="flex items-center justify-between sm:flex-col sm:items-end sm:justify-end gap-1 sm:w-24">
-                  <span className={`text-xs ${info.ok ? "text-slate-500" : "text-rose-600"}`}>
+                  <span
+                    className={`text-xs ${
+                      azubiExceeded
+                        ? "font-medium text-amber-700"
+                        : info.ok
+                          ? "text-slate-500"
+                          : "text-rose-600"
+                    }`}
+                  >
                     {info.text}
                   </span>
                   {tooMany && (

@@ -5,16 +5,18 @@ import { EmployeesTab } from "./components/EmployeesTab";
 import { ScheduleTab } from "./components/ScheduleTab";
 import { StundenzettelTab } from "./components/StundenzettelTab";
 import { DocsTab } from "./components/DocsTab";
+import { AzubiTab } from "./components/AzubiTab";
 import { Dashboard } from "./components/Dashboard";
 import { LockScreen } from "./components/LockScreen";
 import { isAuthenticated, logout } from "./lib/auth";
 import { monthLabel } from "./lib/shiftOps";
 
-type TabId = "einstellungen" | "mitarbeiter" | "dienstplan" | "stundenzettel" | "docs";
+type TabId = "einstellungen" | "mitarbeiter" | "azubi" | "dienstplan" | "stundenzettel" | "docs";
 
 const TABS: { id: TabId; label: string }[] = [
   { id: "einstellungen", label: "Cài đặt" },
   { id: "mitarbeiter", label: "Nhân viên" },
+  { id: "azubi", label: "Azubi" },
   { id: "dienstplan", label: "Lịch làm việc" },
   { id: "stundenzettel", label: "Bảng chấm công" },
   { id: "docs", label: "Tài liệu" },
@@ -105,6 +107,7 @@ function MainApp({ onLogout }: { onLogout: () => void }) {
         <div className="no-print">
           {tab === "einstellungen" && <SettingsTab store={store} />}
           {tab === "mitarbeiter" && <EmployeesTab store={store} />}
+          {tab === "azubi" && <AzubiTab store={store} />}
           {tab === "dienstplan" && <ScheduleTab store={store} />}
           {tab === "docs" && <DocsTab />}
         </div>

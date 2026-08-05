@@ -51,6 +51,15 @@ const WEEKEND: DayBlocks = [w(12 * 60, 22 * 60)];
 
 const clone = (blocks: DayBlocks): DayBlocks => blocks.map((b) => ({ ...b }));
 
+/**
+ * Version der Öffnungszeiten-Vorgabe. Hochzählen, sobald sich DEFAULT_WORK_HOURS
+ * ändert: gespeicherte Stände mit älterer Version werden einmalig überschrieben.
+ *
+ * Ohne das würde ein alter Speicherstand die neuen Zeiten für immer verdecken –
+ * genau das war passiert (Mo–Do ohne Mittagsschließung, Sa ab 11:00 statt 12:00).
+ */
+export const WORK_HOURS_VERSION = 2;
+
 export const DEFAULT_WORK_HOURS: WorkHoursConfig = {
   perWeekday: {
     monday: clone(SPLIT_DAY),

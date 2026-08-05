@@ -10,7 +10,7 @@ import {
   weekdayKeyOf,
   type WeekdayKey,
 } from "../lib/demand";
-import type { DayBlocks, DayWindow, WorkHoursConfig } from "../lib/workHours";
+import { DEFAULT_WORK_HOURS, type DayBlocks, type DayWindow, type WorkHoursConfig } from "../lib/workHours";
 import { holidayNames as holidayNamesOf, HOLIDAY_STATE_LABELS } from "../lib/holidays";
 import { isoLabel } from "../lib/shiftOps";
 import { STORES } from "../lib/stores";
@@ -305,6 +305,18 @@ export function SettingsTab({ store }: { store: UseScheduleReturn }) {
             onChange={setHolidayBlocks}
           />
         </div>
+
+        <button
+          type="button"
+          onClick={() => {
+            if (confirm("Đặt lại toàn bộ giờ làm về mặc định của cửa hàng?")) {
+              updateMeta({ workHours: structuredClone(DEFAULT_WORK_HOURS) });
+            }
+          }}
+          className="mt-3 text-xs text-slate-500 hover:text-slate-900 underline"
+        >
+          Đặt lại giờ mặc định (T2–T5 nghỉ trưa 15:00–16:30, T6 11–22, T7/CN 12–22)
+        </button>
 
         {holidaysThisMonth.length > 0 && (
           <div className="mt-3 rounded bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-800">

@@ -207,7 +207,11 @@ export function ScheduleTab({ store }: { store: UseScheduleReturn }) {
                       {emp.name}
                     </td>
                     <td className="border-b border-slate-100 px-2 py-1 text-slate-500">
-                      {emp.employmentType === "VOLLZEIT" ? "TT" : "BT"}
+                      {emp.employmentType === "VOLLZEIT"
+                        ? "TT"
+                        : emp.employmentType === "AZUBI"
+                          ? "AZ"
+                          : "BT"}
                     </td>
                     <td className="border-b border-slate-100 px-2 py-1 text-right text-slate-500">
                       {emp.targetMinutes / 60}h

@@ -154,7 +154,11 @@ export function ScheduleDayView({
                 <div className="flex-1 min-w-0">
                   <div className="font-medium truncate">{emp.name}</div>
                   <div className="text-xs opacity-80">
-                    {emp.employmentType === "VOLLZEIT" ? "Toàn thời gian" : "Bán thời gian"} ·{" "}
+                    {emp.employmentType === "VOLLZEIT"
+                      ? "Toàn thời gian"
+                      : emp.employmentType === "AZUBI"
+                        ? "Azubi (học nghề)"
+                        : "Bán thời gian"} ·{" "}
                     {isEarly ? "Ca sáng" : "Ca tối"}
                   </div>
                 </div>

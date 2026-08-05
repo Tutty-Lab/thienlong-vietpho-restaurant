@@ -6,7 +6,39 @@
 import type { DateOverride, WorkHoursConfig } from "./lib/workHours";
 import type { HolidayState } from "./lib/holidays";
 
-export type EmploymentType = "VOLLZEIT" | "TEILZEIT";
+export type EmploymentType = "VOLLZEIT" | "TEILZEIT" | "AZUBI";
+
+/** Wochentag-Schlüssel (Duplikat von lib/demand, um Zyklen zu vermeiden). */
+export type WeekdayName =
+  | "monday"
+  | "tuesday"
+  | "wednesday"
+  | "thursday"
+  | "friday"
+  | "saturday"
+  | "sunday";
+
+/**
+ * Auszubildende. In der Berufsschulzeit gilt eine kleinere Wochenstundenzahl
+ * und an den Schultagen wird gar nicht eingeteilt; außerhalb der Schulzeit
+ * arbeitet der Azubi die volle Woche.
+ */
+export type AzubiConfig = {
+  /** true = Berufsschule läuft gerade. */
+  inSchoolTerm: boolean;
+  /** Wochentage in der Schule – an diesen Tagen keine Schicht. */
+  schoolDays: WeekdayName[];
+  /** Gewünschte Wochenstunden in der Schulzeit (gesetzliche Decke: 24 h). */
+  weeklyHoursInTerm?: number;
+  /** Gewünschte Wochenstunden außerhalb der Schulzeit (Decke: 38,5 h). */
+  weeklyHoursOutOfTerm?: number;
+};
+
+/** Wirksame Obergrenzen je Azubi-Situation. */
+export const AZUBI_HOURS_IN_TERM = 24;
+export const AZUBI_HOURS_OUT_OF_TERM = 38.5;
+/** 2 Schultage + 2 freie Tage lassen 3 Arbeitstage pro Woche. */
+export const AZUBI_WORKDAYS_IN_TERM = 3;
 
 export type ShiftType = "EARLY" | "LATE" | "CUSTOM";
 
@@ -16,6 +48,8 @@ export type Employee = {
   employmentType: EmploymentType;
   /** Monatliches Soll in Minuten (Integer). 176 h => 10560. */
   targetMinutes: number;
+  /** Nur bei employmentType === "AZUBI" gesetzt. */
+  azubi?: AzubiConfig;
   /**
    * Häkchen „Lưu" in der Mitarbeiterliste: vom Nutzer gesetzte Bestätigung,
    * dass die Daten dieser Person geprüft und übernommen sind. Rein als Merker
@@ -53,6 +87,12 @@ export type Shift = {
 
 export type Schedule = {
   companyName: string;
+  /**
+   * Version der zuletzt übernommenen Öffnungszeiten-Vorgabe.
+   * Ist sie älter als WORK_HOURS_VERSION, werden die Zeiten einmalig neu
+   * aus DEFAULT_WORK_HOURS gesetzt.
+   */
+  hoursVersion?: number;
   /** Bundesland der Filiale – bestimmt die gesetzlichen Feiertage. */
   holidayState: HolidayState;
   /** Anschrift des Betriebs (erscheint auf dem Stundenzettel). */

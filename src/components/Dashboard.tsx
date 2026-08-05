@@ -16,6 +16,7 @@ export function Dashboard({ store }: { store: UseScheduleReturn }) {
   const { schedule, validation } = store;
   const vz = schedule.employees.filter((e) => e.employmentType === "VOLLZEIT").length;
   const tz = schedule.employees.filter((e) => e.employmentType === "TEILZEIT").length;
+  const az = schedule.employees.filter((e) => e.employmentType === "AZUBI").length;
   const targetMin = schedule.employees.reduce((s, e) => s + e.targetMinutes, 0);
   const plannedMin = schedule.shifts.reduce((s, x) => s + x.paidMinutes, 0);
   const notGenerated = schedule.shifts.length === 0;
@@ -34,10 +35,11 @@ export function Dashboard({ store }: { store: UseScheduleReturn }) {
 
   return (
     <div>
-      <div className="grid grid-cols-2 md:grid-cols-6 gap-2">
+      <div className="grid grid-cols-2 md:grid-cols-7 gap-2">
         <Stat label="Số nhân viên" value={String(schedule.employees.length)} />
         <Stat label="Toàn thời gian" value={String(vz)} />
         <Stat label="Bán thời gian" value={String(tz)} />
+        <Stat label="Azubi" value={String(az)} />
         <Stat label="Tổng giờ định mức" value={`${minutesToDecimalHours(targetMin)} h`} />
         <Stat label="Tổng giờ đã xếp" value={`${minutesToDecimalHours(plannedMin)} h`} />
         <Stat label="Trạng thái kiểm tra" value={statusValue} accent={statusAccent} />

@@ -12,11 +12,17 @@ import { isRemoteConfigured, loadRemote, saveRemote, type RemoteStatus } from ".
 import { createManualShift, updateShiftTimes } from "../lib/shiftOps";
 import {
   DEFAULT_WORK_HOURS,
+  WORK_HOURS_VERSION,
   normalizeWorkHours,
   type DateOverride,
   type OverrideMap,
 } from "../lib/workHours";
 import { loadStoreId, saveStoreId, storeById, type StoreConfig } from "../lib/stores";
+import {
+  azubiMonthlyMinutes,
+  defaultAzubiConfig,
+  withAutomaticAzubiTarget,
+} from "../lib/azubi";
 
 function emptySchedule(store: StoreConfig): Schedule {
   const now = new Date();
@@ -26,6 +32,7 @@ function emptySchedule(store: StoreConfig): Schedule {
     holidayState: store.holidayState,
     year: now.getFullYear(),
     month: now.getMonth() + 1,
+    hoursVersion: WORK_HOURS_VERSION,
     workHours: structuredClone(DEFAULT_WORK_HOURS),
     dateOverrides: [],
     employees: [],
@@ -44,17 +51,28 @@ function overridesToMap(list: DateOverride[]): OverrideMap {
 function normalizeSchedule(raw: Schedule | undefined, store: StoreConfig): Schedule {
   const base = emptySchedule(store);
   if (!raw) return base;
+  const year = raw.year ?? base.year;
+  const month = raw.month ?? base.month;
   return {
     // Name, Adresse und Bundesland kommen IMMER aus stores.ts – so kann ein
     // alter Speicherstand nicht die Daten der falschen Filiale mitschleppen.
     companyName: store.name,
     address: store.address,
     holidayState: store.holidayState,
-    year: raw.year ?? base.year,
-    month: raw.month ?? base.month,
-    workHours: normalizeWorkHours(raw.workHours),
+    hoursVersion: WORK_HOURS_VERSION,
+    year,
+    month,
+    // Ältere Stände haben noch die alten Öffnungszeiten (Mo–Do ohne
+    // Mittagsschließung, Sa ab 11:00). Einmalig auf die aktuelle Vorgabe
+    // heben – sonst verdeckt der gespeicherte Stand die neuen Zeiten für immer.
+    workHours:
+      raw.hoursVersion === WORK_HOURS_VERSION
+        ? normalizeWorkHours(raw.workHours)
+        : structuredClone(DEFAULT_WORK_HOURS),
     dateOverrides: Array.isArray(raw.dateOverrides) ? raw.dateOverrides : [],
-    employees: raw.employees ?? [],
+    employees: (raw.employees ?? []).map((employee) =>
+      withAutomaticAzubiTarget(employee, year, month),
+    ),
     shifts: raw.shifts ?? [],
   };
 }
@@ -150,6 +168,21 @@ export function useSchedule() {
     storeIdRef.current = storeId;
   }, [storeId]);
 
+  // Azubi-Soll wird nie von Hand gepflegt, sondern aus den Wochenstunden
+  // gerechnet (24 h in der Schulzeit, sonst 38,5 h). Sobald Monat, Jahr oder
+  // die Azubi-Einstellungen wechseln, wird es hier nachgezogen.
+  useEffect(() => {
+    setSchedule((s) => {
+      let changed = false;
+      const employees = s.employees.map((e) => {
+        const next = withAutomaticAzubiTarget(e, s.year, s.month);
+        if (next !== e) changed = true;
+        return next;
+      });
+      return changed ? { ...s, employees } : s;
+    });
+  }, [schedule.year, schedule.month, schedule.employees]);
+
   const validation: ValidationResult = useMemo(
     () => validateSchedule(schedule.employees, schedule.shifts),
     [schedule.employees, schedule.shifts],
@@ -163,13 +196,20 @@ export function useSchedule() {
   // ----- Mitarbeiter -----
   const addEmployee = useCallback(
     (name: string, employmentType: EmploymentType, targetHours: number) => {
-      const emp: Employee = {
-        id: newEmployeeId(),
-        name: name.trim() || "Neuer Mitarbeiter",
-        employmentType,
-        targetMinutes: Math.round(targetHours) * 60,
-      };
-      setSchedule((s) => ({ ...s, employees: [...s.employees, emp] }));
+      setSchedule((s) => {
+        const azubi = employmentType === "AZUBI" ? defaultAzubiConfig() : undefined;
+        const emp: Employee = {
+          id: newEmployeeId(),
+          name: name.trim() || "Neuer Mitarbeiter",
+          employmentType,
+          targetMinutes:
+            employmentType === "AZUBI"
+              ? azubiMonthlyMinutes(azubi, s.year, s.month)
+              : Math.round(targetHours) * 60,
+          azubi,
+        };
+        return { ...s, employees: [...s.employees, emp] };
+      });
     },
     [],
   );
@@ -177,7 +217,11 @@ export function useSchedule() {
   const updateEmployee = useCallback((id: string, patch: Partial<Employee>) => {
     setSchedule((s) => ({
       ...s,
-      employees: s.employees.map((e) => (e.id === id ? { ...e, ...patch } : e)),
+      employees: s.employees.map((e) =>
+        e.id === id
+          ? withAutomaticAzubiTarget({ ...e, ...patch }, s.year, s.month)
+          : e,
+      ),
     }));
   }, []);
 
