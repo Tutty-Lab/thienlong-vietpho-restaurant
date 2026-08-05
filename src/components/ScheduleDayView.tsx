@@ -10,7 +10,7 @@ import {
 } from "../lib/demand";
 import { minutesToShortHours, minutesToTime } from "../lib/time";
 import { isoLabel } from "../lib/shiftOps";
-import { brandenburgHolidayNames } from "../lib/holidays";
+import { holidayNames as holidayNamesOf } from "../lib/holidays";
 import { format } from "date-fns";
 
 /** Chế độ xem theo từng ngày – tối ưu cho điện thoại (không cuộn ngang). */
@@ -26,7 +26,7 @@ export function ScheduleDayView({
     () => datesOfMonth(schedule.year, schedule.month),
     [schedule.year, schedule.month],
   );
-  const holidayNames = useMemo(() => brandenburgHolidayNames(schedule.year), [schedule.year]);
+  const holidayNames = useMemo(() => holidayNamesOf(schedule.year, schedule.holidayState), [schedule.year]);
   const overridesByDate = useMemo(
     () => new Map(schedule.dateOverrides.map((o) => [o.date, o] as const)),
     [schedule.dateOverrides],

@@ -4,6 +4,7 @@
 // ============================================================================
 
 import type { DateOverride, WorkHoursConfig } from "./lib/workHours";
+import type { HolidayState } from "./lib/holidays";
 
 export type EmploymentType = "VOLLZEIT" | "TEILZEIT";
 
@@ -23,15 +24,27 @@ export type Employee = {
   saved?: boolean;
 };
 
+/** Ein zusammenhängendes Stück Arbeitszeit. */
+export type ShiftSegment = { startMinutes: number; endMinutes: number };
+
 export type Shift = {
   id: string;
   employeeId: string;
   /** ISO-Datum "yyyy-MM-dd". */
   date: string;
+  /** Beginn des ERSTEN Stücks. */
   startMinutes: number;
+  /** Ende des LETZTEN Stücks. */
   endMinutes: number;
   pauseMinutes: number;
-  /** Bezahlte Arbeitszeit in Minuten = presence - pause. */
+  /**
+   * Geteilter Dienst: zwei Stücke, dazwischen ist der Laden zu (Mo–Do
+   * 15:00–16:30). Fehlt das Feld, ist es ein durchgehender Dienst.
+   * Bei geteiltem Dienst gibt es KEINE gerechnete Pause – die Lücke ist
+   * die Ruhezeit.
+   */
+  segments?: ShiftSegment[];
+  /** Bezahlte Arbeitszeit in Minuten = Summe der Stücke. */
   paidMinutes: number;
   shiftType: ShiftType;
   /** true = automatisch generiert, false = manuell hinzugefügt/geändert. */
@@ -40,6 +53,8 @@ export type Shift = {
 
 export type Schedule = {
   companyName: string;
+  /** Bundesland der Filiale – bestimmt die gesetzlichen Feiertage. */
+  holidayState: HolidayState;
   /** Anschrift des Betriebs (erscheint auf dem Stundenzettel). */
   address: string;
   year: number;

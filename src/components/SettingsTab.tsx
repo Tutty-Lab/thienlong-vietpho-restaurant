@@ -10,9 +10,10 @@ import {
   weekdayKeyOf,
   type WeekdayKey,
 } from "../lib/demand";
-import type { DayWindow, WorkHoursConfig } from "../lib/workHours";
-import { brandenburgHolidayNames } from "../lib/holidays";
+import type { DayBlocks, DayWindow, WorkHoursConfig } from "../lib/workHours";
+import { holidayNames as holidayNamesOf, HOLIDAY_STATE_LABELS } from "../lib/holidays";
 import { isoLabel } from "../lib/shiftOps";
+import { STORES } from "../lib/stores";
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -39,31 +40,23 @@ const WEEKDAY_ORDER: WeekdayKey[] = [
   "sunday",
 ];
 
-/** Zeile mit zwei Zeit-Feldern (Beginn/Ende) für ein Zeitfenster. */
-function WindowRow({
-  label,
-  hint,
-  window,
+/** Ein Zeitfeld-Paar (Beginn/Ende) für einen Block. */
+function BlockFields({
+  block,
   onChange,
 }: {
-  label: string;
-  hint?: string;
-  window: DayWindow;
+  block: DayWindow;
   onChange: (next: DayWindow) => void;
 }) {
   return (
-    <div className="flex items-center gap-2 py-1.5">
-      <div className="w-24 sm:w-40 shrink-0">
-        <div className="text-sm text-slate-700 leading-tight">{label}</div>
-        {hint && <div className="text-[11px] text-slate-400">{hint}</div>}
-      </div>
+    <>
       <input
         type="time"
         className={`${timeClass} min-w-0 flex-1 sm:flex-none`}
-        value={minutesToTime(window.startMinutes)}
+        value={minutesToTime(block.startMinutes)}
         onChange={(e) => {
           try {
-            onChange({ ...window, startMinutes: timeToMinutes(e.target.value) });
+            onChange({ ...block, startMinutes: timeToMinutes(e.target.value) });
           } catch {
             /* nhập chưa xong */
           }
@@ -73,15 +66,82 @@ function WindowRow({
       <input
         type="time"
         className={`${timeClass} min-w-0 flex-1 sm:flex-none`}
-        value={minutesToTime(window.endMinutes)}
+        value={minutesToTime(block.endMinutes)}
         onChange={(e) => {
           try {
-            onChange({ ...window, endMinutes: timeToMinutes(e.target.value) });
+            onChange({ ...block, endMinutes: timeToMinutes(e.target.value) });
           } catch {
             /* nhập chưa xong */
           }
         }}
       />
+    </>
+  );
+}
+
+/**
+ * Zeile für einen Tag. Ein Tag kann einen durchgehenden Block haben oder zwei
+ * (mittags geschlossen). Der zweite Block lässt sich hier zu- und abschalten.
+ */
+function DayRow({
+  label,
+  hint,
+  blocks,
+  onChange,
+}: {
+  label: string;
+  hint?: string;
+  blocks: DayBlocks;
+  onChange: (next: DayBlocks) => void;
+}) {
+  const split = blocks.length > 1;
+
+  function setBlock(i: number, next: DayWindow) {
+    onChange(blocks.map((b, k) => (k === i ? next : b)));
+  }
+
+  function toggleSplit() {
+    if (split) {
+      // Zurück auf durchgehend: vom ersten Beginn bis zum letzten Ende.
+      onChange([
+        { startMinutes: blocks[0].startMinutes, endMinutes: blocks[blocks.length - 1].endMinutes },
+      ]);
+    } else {
+      // Aufteilen: Vorschlag mittags 15:00–16:30 geschlossen.
+      const only = blocks[0];
+      onChange([
+        { startMinutes: only.startMinutes, endMinutes: 15 * 60 },
+        { startMinutes: 16 * 60 + 30, endMinutes: only.endMinutes },
+      ]);
+    }
+  }
+
+  return (
+    <div className="py-1.5 border-b border-slate-100 last:border-0">
+      <div className="flex items-center gap-2">
+        <div className="w-24 sm:w-40 shrink-0">
+          <div className="text-sm text-slate-700 leading-tight">{label}</div>
+          {hint && <div className="text-[11px] text-slate-400">{hint}</div>}
+        </div>
+        <BlockFields block={blocks[0]} onChange={(next) => setBlock(0, next)} />
+        <button
+          type="button"
+          onClick={toggleSplit}
+          className="ml-auto shrink-0 text-xs text-slate-500 hover:text-slate-900 underline"
+        >
+          {split ? "Bỏ nghỉ trưa" : "Thêm nghỉ trưa"}
+        </button>
+      </div>
+
+      {split && (
+        <div className="flex items-center gap-2 mt-1.5">
+          <div className="w-24 sm:w-40 shrink-0 text-[11px] text-slate-400">
+            đóng cửa {minutesToTime(blocks[0].endMinutes)}–
+            {minutesToTime(blocks[1].startMinutes)}
+          </div>
+          <BlockFields block={blocks[1]} onChange={(next) => setBlock(1, next)} />
+        </div>
+      )}
     </div>
   );
 }
@@ -122,7 +182,7 @@ export function SettingsTab({ store }: { store: UseScheduleReturn }) {
     setOvNote("");
   }
 
-  function setWeekdayWindow(key: WeekdayKey, next: DayWindow) {
+  function setWeekdayBlocks(key: WeekdayKey, next: DayBlocks) {
     const workHours: WorkHoursConfig = {
       ...schedule.workHours,
       perWeekday: { ...schedule.workHours.perWeekday, [key]: next },
@@ -130,7 +190,7 @@ export function SettingsTab({ store }: { store: UseScheduleReturn }) {
     updateMeta({ workHours });
   }
 
-  function setHolidayWindow(next: DayWindow) {
+  function setHolidayBlocks(next: DayBlocks) {
     updateMeta({ workHours: { ...schedule.workHours, holiday: next } });
   }
 
@@ -141,7 +201,7 @@ export function SettingsTab({ store }: { store: UseScheduleReturn }) {
 
   // Feiertage (Brandenburg) im gewählten Monat.
   const holidaysThisMonth = useMemo(() => {
-    const names = brandenburgHolidayNames(schedule.year);
+    const names = holidayNamesOf(schedule.year, schedule.holidayState);
     const monthDates = new Set(datesOfMonth(schedule.year, schedule.month));
     return [...names.entries()]
       .filter(([iso]) => monthDates.has(iso))
@@ -153,6 +213,26 @@ export function SettingsTab({ store }: { store: UseScheduleReturn }) {
       <section className="rounded-lg bg-white border border-slate-200 p-4 sm:p-5 shadow-sm">
         <h2 className="text-base font-semibold text-slate-900 mb-4">Cài đặt chung</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="md:col-span-2">
+            <Field label="Cửa hàng">
+              <select
+                className={inputClass}
+                value={store.storeId}
+                onChange={(e) => store.setStoreId(e.target.value)}
+              >
+                {STORES.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name}
+                  </option>
+                ))}
+              </select>
+              <p className="mt-1 text-xs text-slate-500">
+                Đổi cửa hàng là chuyển sang dữ liệu riêng của cửa hàng đó — nhân viên, lịch làm việc
+                và giờ làm đều tách biệt.
+              </p>
+            </Field>
+          </div>
+
           <div className="md:col-span-2">
             <Field label="Tên công ty / cửa hàng">
               <div className="w-full rounded border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
@@ -203,32 +283,33 @@ export function SettingsTab({ store }: { store: UseScheduleReturn }) {
         <h2 className="text-base font-semibold text-slate-900 mb-1">Giờ làm theo ngày</h2>
         <p className="text-xs text-slate-500 mb-3">
           Đây là <span className="font-medium">khung giờ làm</span> (giờ xếp ca) cho mỗi ngày trong
-          tuần. Ca sáng bắt đầu ở đầu khung, ca tối kết thúc ở cuối khung — có thể khác giờ mở cửa cho
-          khách.
+          tuần. Ca sáng nằm trong khung đầu, ca tối nằm trong khung cuối. Ngày nào đóng cửa nghỉ
+          trưa thì bấm <span className="font-medium">Thêm nghỉ trưa</span> để tách làm hai khung —
+          lịch sẽ không bao giờ xếp ai vào quãng đóng cửa đó.
         </p>
 
         <div>
           {WEEKDAY_ORDER.map((key) => (
-            <WindowRow
+            <DayRow
               key={key}
               label={WEEKDAY_LABELS_VI[key]}
-              window={schedule.workHours.perWeekday[key]}
-              onChange={(next) => setWeekdayWindow(key, next)}
+              blocks={schedule.workHours.perWeekday[key]}
+              onChange={(next) => setWeekdayBlocks(key, next)}
             />
           ))}
           <div className="my-2 border-t border-slate-200" />
-          <WindowRow
+          <DayRow
             label="Ngày lễ"
-            hint="Tự áp dụng cho ngày lễ Brandenburg"
-            window={schedule.workHours.holiday}
-            onChange={setHolidayWindow}
+            hint={`Tự áp dụng cho ngày lễ ${HOLIDAY_STATE_LABELS[schedule.holidayState]}`}
+            blocks={schedule.workHours.holiday}
+            onChange={setHolidayBlocks}
           />
         </div>
 
         {holidaysThisMonth.length > 0 && (
           <div className="mt-3 rounded bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-800">
             <div className="font-medium mb-1">
-              Ngày lễ Brandenburg trong {MONTH_NAMES_VI[schedule.month - 1]} {schedule.year}:
+              Ngày lễ {HOLIDAY_STATE_LABELS[schedule.holidayState]} trong {MONTH_NAMES_VI[schedule.month - 1]} {schedule.year}:
             </div>
             <ul className="space-y-1">
               {holidaysThisMonth.map(([iso, name]) => {

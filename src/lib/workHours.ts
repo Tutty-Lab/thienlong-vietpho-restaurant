@@ -9,9 +9,18 @@ import { parseIsoDate, weekdayKeyOf, type WeekdayKey } from "./demand";
 
 export type DayWindow = { startMinutes: number; endMinutes: number };
 
+/**
+ * Ein Tag besteht aus einem ODER zwei Blöcken. Zwei Blöcke = der Laden macht
+ * mittags zu (Mo–Do 15:00–16:30). In dieser Lücke wird NICHT geplant, und weil
+ * das Personal dann ohnehin ruht, gibt es keine gerechnete Pause mehr.
+ *
+ * Block 1 trägt die Frühschicht, der letzte Block die Spätschicht.
+ */
+export type DayBlocks = DayWindow[];
+
 export type WorkHoursConfig = {
-  perWeekday: Record<WeekdayKey, DayWindow>;
-  holiday: DayWindow;
+  perWeekday: Record<WeekdayKey, DayBlocks>;
+  holiday: DayBlocks;
 };
 
 /**
@@ -28,28 +37,38 @@ export type DateOverride = {
 
 export type OverrideMap = Record<string, DateOverride>;
 
-export type ResolvedDay = { closed: boolean; window: DayWindow };
+export type ResolvedDay = { closed: boolean; blocks: DayBlocks };
 
 const w = (start: number, end: number): DayWindow => ({ startMinutes: start, endMinutes: end });
 
-// Vorgabe des Chefs: Arbeitszeit (nicht Öffnungszeit) täglich 11:00–22:00 –
-// an allen Wochentagen gleich, auch sonntags und an Feiertagen.
-// Das Fenster ist 11 h lang, die längste Schicht (8 h + 1 h Pause = 9 h
-// Anwesenheit) passt damit sowohl früh als auch spät hinein.
-const ALL_DAYS = w(11 * 60, 22 * 60); // 11:00–22:00
+// Öffnungszeiten der beiden Filialen in Heidenheim:
+//   Mo–Do  11:00–15:00 und 16:30–22:00 (mittags geschlossen)
+//   Fr     11:00–22:00 durchgehend
+//   Sa/So  12:00–22:00 durchgehend
+const SPLIT_DAY: DayBlocks = [w(11 * 60, 15 * 60), w(16 * 60 + 30, 22 * 60)];
+const FRIDAY: DayBlocks = [w(11 * 60, 22 * 60)];
+const WEEKEND: DayBlocks = [w(12 * 60, 22 * 60)];
+
+const clone = (blocks: DayBlocks): DayBlocks => blocks.map((b) => ({ ...b }));
 
 export const DEFAULT_WORK_HOURS: WorkHoursConfig = {
   perWeekday: {
-    monday: { ...ALL_DAYS },
-    tuesday: { ...ALL_DAYS },
-    wednesday: { ...ALL_DAYS },
-    thursday: { ...ALL_DAYS },
-    friday: { ...ALL_DAYS },
-    saturday: { ...ALL_DAYS },
-    sunday: { ...ALL_DAYS },
+    monday: clone(SPLIT_DAY),
+    tuesday: clone(SPLIT_DAY),
+    wednesday: clone(SPLIT_DAY),
+    thursday: clone(SPLIT_DAY),
+    friday: clone(FRIDAY),
+    saturday: clone(WEEKEND),
+    sunday: clone(WEEKEND),
   },
-  holiday: { ...ALL_DAYS },
+  holiday: clone(WEEKEND),
 };
+
+/** Längster zusammenhängender Block eines Tages (0 = geschlossen). */
+export function longestBlockMinutes(day: ResolvedDay): number {
+  if (day.closed) return 0;
+  return day.blocks.reduce((max, b) => Math.max(max, b.endMinutes - b.startMinutes), 0);
+}
 
 /**
  * Für Nachfrage/Spätquote maßgeblicher Wochentag: Feiertage zählen wie Sonntag
@@ -60,12 +79,12 @@ export function effectiveWeekdayKey(isoDate: string, holidays: Set<string>): Wee
   return weekdayKeyOf(parseIsoDate(isoDate));
 }
 
-/** Arbeitszeit-Fenster für ein konkretes Datum (berücksichtigt Feiertage). */
+/** Arbeitszeit-Blöcke für ein konkretes Datum (berücksichtigt Feiertage). */
 export function resolveWorkWindow(
   config: WorkHoursConfig,
   isoDate: string,
   holidays: Set<string>,
-): DayWindow {
+): DayBlocks {
   if (holidays.has(isoDate)) return config.holiday;
   return config.perWeekday[weekdayKeyOf(parseIsoDate(isoDate))];
 }
@@ -81,28 +100,37 @@ export function resolveDay(
   overrides: OverrideMap = {},
 ): ResolvedDay {
   const ov = overrides[isoDate];
-  if (ov?.closed) return { closed: true, window: { startMinutes: 0, endMinutes: 0 } };
-  if (ov?.window) return { closed: false, window: ov.window };
-  return { closed: false, window: resolveWorkWindow(config, isoDate, holidays) };
+  if (ov?.closed) return { closed: true, blocks: [] };
+  // Eine Ausnahme mit eigenen Zeiten ist immer ein einzelner Block.
+  if (ov?.window) return { closed: false, blocks: [ov.window] };
+  return { closed: false, blocks: resolveWorkWindow(config, isoDate, holidays) };
 }
 
-/** Tiefe Kopie mit Auffüllen fehlender Felder (für Migration alter Speicherstände). */
+/**
+ * Nimmt einen gespeicherten Stand entgegen und bringt ihn aufs aktuelle
+ * Schema. Ältere Stände hatten je Tag EIN Objekt statt einer Liste von
+ * Blöcken – das wird hier still in eine Ein-Block-Liste umgewandelt.
+ */
+function toBlocks(value: unknown, fallback: DayBlocks): DayBlocks {
+  const isBlock = (b: unknown): b is DayWindow =>
+    typeof b === "object" &&
+    b !== null &&
+    typeof (b as DayWindow).startMinutes === "number" &&
+    typeof (b as DayWindow).endMinutes === "number";
+
+  if (Array.isArray(value)) {
+    const blocks = value.filter(isBlock).map((b) => ({ ...b }));
+    return blocks.length > 0 ? blocks : clone(fallback);
+  }
+  if (isBlock(value)) return [{ ...value }]; // altes Format
+  return clone(fallback);
+}
+
 export function normalizeWorkHours(partial: Partial<WorkHoursConfig> | undefined): WorkHoursConfig {
   const base = DEFAULT_WORK_HOURS;
-  const perWeekday = { ...base.perWeekday };
-  if (partial?.perWeekday) {
-    for (const key of Object.keys(perWeekday) as WeekdayKey[]) {
-      const v = partial.perWeekday[key];
-      if (v && typeof v.startMinutes === "number" && typeof v.endMinutes === "number") {
-        perWeekday[key] = { startMinutes: v.startMinutes, endMinutes: v.endMinutes };
-      }
-    }
+  const perWeekday = {} as Record<WeekdayKey, DayBlocks>;
+  for (const key of Object.keys(base.perWeekday) as WeekdayKey[]) {
+    perWeekday[key] = toBlocks(partial?.perWeekday?.[key], base.perWeekday[key]);
   }
-  const holiday =
-    partial?.holiday &&
-    typeof partial.holiday.startMinutes === "number" &&
-    typeof partial.holiday.endMinutes === "number"
-      ? { ...partial.holiday }
-      : { ...base.holiday };
-  return { perWeekday, holiday };
+  return { perWeekday, holiday: toBlocks(partial?.holiday, base.holiday) };
 }

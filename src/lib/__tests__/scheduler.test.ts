@@ -14,14 +14,14 @@ describe("Scheduler – August 2026 Beispieldaten", () => {
     employees: SAMPLE_EMPLOYEES,
   });
 
-  it("verteilt insgesamt genau 1022 bezahlte Stunden", () => {
+  it("verteilt insgesamt genau 793 bezahlte Stunden", () => {
     const totalMinutes = shifts.reduce((s, x) => s + x.paidMinutes, 0);
-    expect(totalMinutes).toBe(1022 * 60);
+    expect(totalMinutes).toBe(793 * 60);
   });
 
   it("trifft jedes einzelne Mitarbeiter-Soll exakt", () => {
     const expected: Record<string, number> = {
-      VZ1: 176, VZ2: 180, VZ3: 179, VZ4: 178,
+      VZ1: 120, VZ2: 124, VZ3: 118, VZ4: 122,
       TZ1: 40, TZ2: 55, TZ3: 55, TZ4: 79, TZ5: 80,
     };
     for (const emp of SAMPLE_EMPLOYEES) {
@@ -54,11 +54,16 @@ describe("Scheduler – August 2026 Beispieldaten", () => {
     }
   });
 
-  it("jede Schicht: paid <= 8 h und korrekte Pause", () => {
+  it("jede Schicht: paid <= 10 h und korrekte Pause", () => {
     for (const s of shifts) {
-      expect(s.paidMinutes).toBeLessThanOrEqual(8 * 60);
-      expect(s.pauseMinutes).toBe(calculatePause(s.paidMinutes));
-      expect(s.endMinutes - s.startMinutes - s.pauseMinutes).toBe(s.paidMinutes);
+      expect(s.paidMinutes).toBeLessThanOrEqual(10 * 60);
+      // Geteilter Dienst: keine gerechnete Pause, bezahlte Zeit = Summe der Stücke.
+      const split = Boolean(s.segments && s.segments.length > 1);
+      expect(s.pauseMinutes).toBe(split ? 0 : calculatePause(s.paidMinutes));
+      const paid = split
+        ? s.segments!.reduce((x, g) => x + (g.endMinutes - g.startMinutes), 0)
+        : s.endMinutes - s.startMinutes - s.pauseMinutes;
+      expect(paid).toBe(s.paidMinutes);
     }
   });
 

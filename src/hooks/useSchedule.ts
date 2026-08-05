@@ -16,13 +16,14 @@ import {
   type DateOverride,
   type OverrideMap,
 } from "../lib/workHours";
-import { COMPANY_ADDRESS, COMPANY_NAME } from "../lib/company";
+import { loadStoreId, saveStoreId, storeById, type StoreConfig } from "../lib/stores";
 
-function emptySchedule(): Schedule {
+function emptySchedule(store: StoreConfig): Schedule {
   const now = new Date();
   return {
-    companyName: COMPANY_NAME,
-    address: COMPANY_ADDRESS,
+    companyName: store.name,
+    address: store.address,
+    holidayState: store.holidayState,
     year: now.getFullYear(),
     month: now.getMonth() + 1,
     workHours: structuredClone(DEFAULT_WORK_HOURS),
@@ -40,13 +41,15 @@ function overridesToMap(list: DateOverride[]): OverrideMap {
 }
 
 /** Migriert einen (evtl. alten) gespeicherten Stand auf das aktuelle Schema. */
-function normalizeSchedule(raw: Schedule | undefined): Schedule {
-  const base = emptySchedule();
+function normalizeSchedule(raw: Schedule | undefined, store: StoreConfig): Schedule {
+  const base = emptySchedule(store);
   if (!raw) return base;
   return {
-    // Firmenname & Adresse sind fest (không cho sửa) – immer erzwingen.
-    companyName: COMPANY_NAME,
-    address: COMPANY_ADDRESS,
+    // Name, Adresse und Bundesland kommen IMMER aus stores.ts – so kann ein
+    // alter Speicherstand nicht die Daten der falschen Filiale mitschleppen.
+    companyName: store.name,
+    address: store.address,
+    holidayState: store.holidayState,
     year: raw.year ?? base.year,
     month: raw.month ?? base.month,
     workHours: normalizeWorkHours(raw.workHours),
@@ -61,23 +64,25 @@ function newEmployeeId(): string {
 }
 
 export function useSchedule() {
+  const [storeId, setStoreIdState] = useState<string>(() => loadStoreId());
+  const storeConfig = storeById(storeId);
+
   const [schedule, setSchedule] = useState<Schedule>(() => {
-    const persisted = loadState();
-    return normalizeSchedule(persisted?.schedule);
+    const persisted = loadState(storeId);
+    return normalizeSchedule(persisted?.schedule, storeById(storeId));
   });
-  const [originalShifts, setOriginalShifts] = useState<Shift[]>(() => {
-    const persisted = loadState();
-    return persisted?.originalShifts ?? [];
-  });
+  const [originalShifts, setOriginalShifts] = useState<Shift[]>(
+    () => loadState(storeId)?.originalShifts ?? [],
+  );
   const [genError, setGenError] = useState<string | null>(null);
   const [remoteStatus, setRemoteStatus] = useState<RemoteStatus>(
     isRemoteConfigured ? "idle" : "off",
   );
 
-  // Immer sofort lokal sichern – das ist der Offline-Puffer.
+  // Immer sofort lokal sichern – das ist der Offline-Puffer, je Filiale getrennt.
   useEffect(() => {
-    saveState({ schedule, originalShifts });
-  }, [schedule, originalShifts]);
+    saveState(storeId, { schedule, originalShifts });
+  }, [storeId, schedule, originalShifts]);
 
   // Letzter Stand für Zugriffe außerhalb des Renders (siehe Erst-Upload).
   const latest = useRef<PersistedState>({ schedule, originalShifts });
@@ -85,23 +90,24 @@ export function useSchedule() {
     latest.current = { schedule, originalShifts };
   }, [schedule, originalShifts]);
 
-  // Beim Start den Stand der Filiale aus der gemeinsamen Datenbank holen.
-  // Vorher darf nicht hochgeladen werden, sonst überschreibt der lokale
-  // (evtl. leere) Stand die Daten in der Datenbank.
+  // Stand der AKTUELLEN Filiale aus der gemeinsamen Datenbank holen – auch
+  // nach jedem Umschalten. Vorher darf nicht hochgeladen werden, sonst
+  // überschreibt der lokale (evtl. leere) Stand die Daten in der Datenbank.
   const hydrated = useRef(!isRemoteConfigured);
   useEffect(() => {
     if (!isRemoteConfigured) return;
+    hydrated.current = false;
     let cancelled = false;
     (async () => {
       try {
-        const remote = await loadRemote();
+        const remote = await loadRemote(storeId);
         if (cancelled) return;
         if (remote?.schedule) {
-          setSchedule(normalizeSchedule(remote.schedule));
+          setSchedule(normalizeSchedule(remote.schedule, storeById(storeId)));
           setOriginalShifts(remote.originalShifts ?? []);
         } else {
           // Noch keine Zeile für diese Filiale: lokalen Stand hochladen.
-          await saveRemote(latest.current);
+          await saveRemote(storeId, latest.current);
         }
         if (!cancelled) setRemoteStatus("idle");
       } catch {
@@ -113,19 +119,36 @@ export function useSchedule() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [storeId]);
 
   // Änderungen gebündelt hochladen (nicht bei jedem Tastendruck).
   useEffect(() => {
     if (!isRemoteConfigured || !hydrated.current) return;
     const timer = window.setTimeout(() => {
       setRemoteStatus("saving");
-      saveRemote({ schedule, originalShifts })
+      saveRemote(storeId, { schedule, originalShifts })
         .then(() => setRemoteStatus("idle"))
         .catch(() => setRemoteStatus("error"));
     }, 1000);
     return () => window.clearTimeout(timer);
-  }, [schedule, originalShifts]);
+  }, [storeId, schedule, originalShifts]);
+
+  /** Filiale wechseln: lokalen Stand der neuen Filiale zeigen, dann laden. */
+  const setStoreId = useCallback((next: string) => {
+    if (next === storeIdRef.current) return;
+    saveStoreId(next);
+    const cached = loadState(next);
+    setSchedule(normalizeSchedule(cached?.schedule, storeById(next)));
+    setOriginalShifts(cached?.originalShifts ?? []);
+    setGenError(null);
+    setStoreIdState(next);
+  }, []);
+
+  // Aktuelle Id ohne Neuanlage des Callbacks lesbar halten.
+  const storeIdRef = useRef(storeId);
+  useEffect(() => {
+    storeIdRef.current = storeId;
+  }, [storeId]);
 
   const validation: ValidationResult = useMemo(
     () => validateSchedule(schedule.employees, schedule.shifts),
@@ -176,6 +199,7 @@ export function useSchedule() {
         workHours: schedule.workHours,
         overrides: overridesToMap(schedule.dateOverrides),
         employees: schedule.employees,
+        holidayState: schedule.holidayState,
       });
       setSchedule((s) => ({ ...s, shifts }));
       setOriginalShifts(shifts.map((sh) => ({ ...sh })));
@@ -195,14 +219,14 @@ export function useSchedule() {
   }, [originalShifts]);
 
   const resetAll = useCallback(() => {
-    clearState();
-    setSchedule(emptySchedule());
+    clearState(storeId);
+    setSchedule(emptySchedule(storeById(storeId)));
     setOriginalShifts([]);
     setGenError(null);
   }, []);
 
   const saveNow = useCallback(() => {
-    saveState({ schedule, originalShifts });
+    saveState(storeId, { schedule, originalShifts });
   }, [schedule, originalShifts]);
 
   // ----- Ausnahmen je Datum -----
@@ -295,6 +319,9 @@ export function useSchedule() {
     generate,
     resetToOriginal,
     resetAll,
+    storeId,
+    storeConfig,
+    setStoreId,
     remoteStatus,
     isRemoteConfigured,
     saveNow,

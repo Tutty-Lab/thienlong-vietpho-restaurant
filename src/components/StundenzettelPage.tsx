@@ -8,7 +8,7 @@ import {
 import { minutesToDecimalHours, minutesToTime } from "../lib/time";
 import { signedHours } from "../lib/dateFormat";
 import { MONTH_NAMES_DE } from "../lib/dateFormat";
-import { brandenburgHolidayNames } from "../lib/holidays";
+import { holidayNames as holidayNamesOf } from "../lib/holidays";
 import { format } from "date-fns";
 
 // Deutscher Monats-Titel für das offizielle Dokument.
@@ -35,7 +35,7 @@ export function StundenzettelPage({
 
   const totalMinutes = [...byDate.values()].reduce((a, s) => a + s.paidMinutes, 0);
   const diff = totalMinutes - employee.targetMinutes;
-  const holidayNames = brandenburgHolidayNames(schedule.year);
+  const holidayNames = holidayNamesOf(schedule.year, schedule.holidayState);
   const closedByDate = new Map(
     schedule.dateOverrides.filter((o) => o.closed).map((o) => [o.date, o] as const),
   );
@@ -95,9 +95,23 @@ export function StundenzettelPage({
               <tr key={d} className={isWeekend || holiday || closed ? "bg-slate-50" : ""}>
                 <Td>{format(parseIsoDate(d), "dd.MM.yyyy")}</Td>
                 <Td>{wd}</Td>
-                <Td className="text-center">{s ? minutesToTime(s.startMinutes) : ""}</Td>
-                <Td className="text-center">{s ? minutesToTime(s.endMinutes) : ""}</Td>
-                <Td className="text-center">{s ? `${s.pauseMinutes} Min` : ""}</Td>
+                {/* Geteilter Dienst: beide Stücke untereinander, so wie es auch
+                    im handgeschriebenen Formular steht. */}
+                <Td className="text-center">
+                  {s
+                    ? (s.segments ?? [s]).map((g, i) => (
+                        <div key={i}>{minutesToTime(g.startMinutes)}</div>
+                      ))
+                    : ""}
+                </Td>
+                <Td className="text-center">
+                  {s
+                    ? (s.segments ?? [s]).map((g, i) => (
+                        <div key={i}>{minutesToTime(g.endMinutes)}</div>
+                      ))
+                    : ""}
+                </Td>
+                <Td className="text-center">{s && s.pauseMinutes > 0 ? `${s.pauseMinutes} Min` : ""}</Td>
                 <Td className="text-center">{s ? minutesToDecimalHours(s.paidMinutes) : "0,00"}</Td>
                 <Td className="text-left text-slate-500">{bemerkung}</Td>
               </tr>

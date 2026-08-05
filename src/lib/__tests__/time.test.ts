@@ -5,6 +5,7 @@ import {
   minutesToDecimalHours,
   minutesToTime,
   presenceFromPaid,
+  pauseForShift,
   timeToMinutes,
 } from "../time";
 
@@ -27,33 +28,36 @@ describe("timeToMinutes / minutesToTime", () => {
   });
 });
 
-describe("calculatePause", () => {
-  it("0 Minuten unter 6 h", () => {
+describe("calculatePause – nur für durchgehende Dienste", () => {
+  it("bis 6 h keine Pause", () => {
     expect(calculatePause(4 * 60)).toBe(0);
-    expect(calculatePause(5 * 60)).toBe(0);
-    expect(calculatePause(6 * 60 - 1)).toBe(0);
+    expect(calculatePause(6 * 60)).toBe(0);
   });
-  it("30 Minuten bei 6 h und 7 h", () => {
-    expect(calculatePause(6 * 60)).toBe(30);
+  it("über 6 h -> 30 Minuten", () => {
+    expect(calculatePause(6 * 60 + 30)).toBe(30);
     expect(calculatePause(7 * 60)).toBe(30);
-    expect(calculatePause(8 * 60 - 1)).toBe(30);
   });
-  it("60 Minuten ab 8 h", () => {
+  it("ab 8 h -> 60 Minuten", () => {
     expect(calculatePause(8 * 60)).toBe(60);
+    expect(calculatePause(9 * 60)).toBe(60);
+  });
+  it("geteilter Dienst hat nie eine Pause", () => {
+    expect(pauseForShift(8 * 60, true)).toBe(0);
+    expect(pauseForShift(8 * 60, false)).toBe(60);
   });
 });
 
 describe("calculatePaidMinutes / presenceFromPaid", () => {
   it("berechnet bezahlte Minuten aus Beginn/Ende/Pause", () => {
-    // 13:00-22:00, Pause 60 => 8 h
-    expect(calculatePaidMinutes(780, 1320, 60)).toBe(480);
+    // 14:00-22:00 ohne Pause => 8 h
+    expect(calculatePaidMinutes(840, 1320, 0)).toBe(480);
     // 18:00-22:00, Pause 0 => 4 h
     expect(calculatePaidMinutes(1080, 1320, 0)).toBe(240);
   });
-  it("presence = paid + pause", () => {
+  it("presence = paid + Pause (durchgehender Dienst)", () => {
     expect(presenceFromPaid(480)).toBe(540); // 8h + 60
     expect(presenceFromPaid(240)).toBe(240); // 4h + 0
-    expect(presenceFromPaid(360)).toBe(390); // 6h + 30
+    expect(presenceFromPaid(360)).toBe(360); // 6h + 0
     expect(presenceFromPaid(420)).toBe(450); // 7h + 30
   });
 });

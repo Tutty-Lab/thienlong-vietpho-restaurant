@@ -27,7 +27,7 @@ export type ValidationResult = {
   summaries: EmployeeSummary[];
 };
 
-const MAX_PAID_MINUTES = 8 * 60;
+const MAX_PAID_MINUTES = 10 * 60; // ArbZG §3: bis 10 h zulässig
 const MAX_CONSECUTIVE_DAYS = 6;
 
 export function validateSchedule(
@@ -46,9 +46,13 @@ export function validateSchedule(
 
   // Regeln je einzelner Schicht.
   for (const shift of shifts) {
-    const presence = shift.endMinutes - shift.startMinutes;
-    const expectedPaid = presence - shift.pauseMinutes;
-    const expectedPause = calculatePause(shift.paidMinutes);
+    // Geteilter Dienst (zwei Stücke): bezahlte Zeit = Summe der Stücke, und
+    // es gibt keine gerechnete Pause – die Ladenschließung ist die Ruhezeit.
+    const isSplit = Array.isArray(shift.segments) && shift.segments.length > 1;
+    const expectedPaid = isSplit
+      ? shift.segments!.reduce((a, s) => a + (s.endMinutes - s.startMinutes), 0)
+      : shift.endMinutes - shift.startMinutes - shift.pauseMinutes;
+    const expectedPause = isSplit ? 0 : calculatePause(shift.paidMinutes);
 
     if (shift.endMinutes <= shift.startMinutes) {
       errors.push({
@@ -61,7 +65,7 @@ export function validateSchedule(
       errors.push({
         employeeId: shift.employeeId,
         date: shift.date,
-        message: `Quá 8 giờ công ngày ${shift.date}.`,
+        message: `Quá ${MAX_PAID_MINUTES / 60} giờ công ngày ${shift.date}.`,
       });
     }
     if (shift.paidMinutes !== expectedPaid) {

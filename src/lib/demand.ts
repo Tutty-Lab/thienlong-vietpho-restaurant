@@ -15,18 +15,18 @@ export type WeekdayKey =
 
 /**
  * Nachfrage-Gewichte je Wochentag (keine Mitarbeiterzahlen!).
- * Laut Chef sind genau Fr/Sa/So die vollen Tage – etwa doppelt so stark wie
- * ein ruhiger Wochentag. Mo–Do liegen deshalb alle bei 1,0; ein früher
- * angenommener Donnerstags-Zuschlag war nicht belegt und wurde entfernt.
+ * Laut Chef sind Fr/Sa/So die vollen Tage, der Samstagsumsatz liegt etwa beim
+ * 1,5-fachen eines Montags. Mo–Do liegen deshalb alle bei 1,0. Früher standen
+ * hier 1,8/2,0/1,6 – das war deutlich zu hoch gegriffen.
  */
 export const DAY_WEIGHTS: Record<WeekdayKey, number> = {
   monday: 1.0,
   tuesday: 1.0,
   wednesday: 1.0,
   thursday: 1.0,
-  friday: 1.8,
-  saturday: 2.0,
-  sunday: 1.6,
+  friday: 1.3,
+  saturday: 1.5, // Angabe des Chefs: Samstagsumsatz ~1,5x Montag
+  sunday: 1.4,
 };
 
 /**

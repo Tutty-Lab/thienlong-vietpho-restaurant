@@ -1,13 +1,10 @@
 // ============================================================================
-// Verbindung zur gemeinsamen Supabase-Datenbank. Alle Filialen (je ein Repo,
-// je eine Domain) hängen an derselben Datenbank; getrennt wird nur über
-// STORE_ID – deshalb steht die ID hier fest im Code der jeweiligen Filiale.
+// Verbindung zur gemeinsamen Supabase-Datenbank. Alle Filialen liegen in
+// derselben Tabelle store_data und werden über die store_id auseinander-
+// gehalten (siehe stores.ts); umgeschaltet wird im Reiter „Cài đặt".
 // ============================================================================
 
 import { createClient } from "@supabase/supabase-js";
-
-/** Kennung dieser Filiale = Schlüssel der Zeile in store_data. */
-export const STORE_ID = "namchi";
 
 // Beide Schreibweisen akzeptieren: VITE_* (selbst gesetzt) und NEXT_PUBLIC_*
 // (so legt die Vercel-Supabase-Integration die öffentlichen Schlüssel an).

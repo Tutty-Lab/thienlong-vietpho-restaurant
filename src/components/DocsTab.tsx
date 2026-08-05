@@ -90,7 +90,13 @@ export function DocsTab() {
             Mỗi người phải đạt <b>đúng định mức tháng</b> (Sollstunden) — không thừa, không thiếu.
           </li>
           <li>
-            <b>Giờ nghỉ (Pause) không tính</b> vào định mức: dưới 6h công = 0 phút, ca 6h và 7h = 30 phút, từ 8h trở lên = 60 phút.
+            <b>Không tính giờ nghỉ (Pause).</b> Thứ 2–5 tiệm đóng cửa 15:00–16:30 để nhân viên nghỉ,
+            nên giờ nghỉ đã nằm sẵn trong khung mở cửa — không trừ thêm lần nữa.{" "}
+            <b>Giờ có mặt = giờ công.</b>
+          </li>
+          <li>
+            <b>Không xếp ai vào quãng đóng cửa.</b> Ngày có nghỉ trưa được chia thành hai khung; mỗi
+            ca phải nằm trọn trong một khung, không bao giờ vắt qua giờ đóng.
           </li>
         </ul>
       </Section>
@@ -131,24 +137,31 @@ export function DocsTab() {
 
       <Section title="3) Độ dài ca co theo khung giờ trong ngày">
         <p>
-          Ca sáng bắt đầu ở đầu khung giờ, ca tối kết thúc ở cuối khung. Nếu một ngày mở{" "}
+          Ca sáng nằm trong <b>khung đầu</b>, ca tối nằm trong <b>khung cuối</b>. Ngày có nghỉ trưa
+          (Thứ 2–5) có hai khung, ca luôn nằm trọn trong một khung. Nếu một ngày mở{" "}
           <b>ngắn hơn</b> (VD nửa buổi), ca sẽ <b>tự co ngắn lại</b> cho vừa khung — kể cả nhân viên toàn
           thời gian vẫn đi làm ca ngắn hôm đó, và <b>định mức tháng vẫn được bù đủ</b> ở các ngày khác.
         </p>
-        <p className="text-slate-600">Độ dài ca cho phép: 4, 5, 6, 7, 8 giờ (không có ca dưới 4h).</p>
+        <p className="text-slate-600">
+          Độ dài ca cho phép: <b>4 đến 8 giờ, bước nửa giờ</b> (4; 4,5; 5; 5,5 … 8). Nhờ nửa giờ mà
+          khung chiều 16:30–22:00 được lấp vừa khít 5,5h thay vì phí nửa tiếng.
+          <br />
+          Toàn thời gian nhận ca <b>từ 6h trở lên</b>, bán thời gian nhận cả dải 4–8h. Khi khung giờ
+          quá hẹp cho ca 6h thì toàn thời gian vẫn được xếp ca ngắn hơn để không phải nghỉ cả ngày.
+        </p>
       </Section>
 
-      <Section title="4) Ngày lễ (tự phát hiện — bang Brandenburg)">
+      <Section title="4) Ngày lễ (tự phát hiện — theo bang của cửa hàng)">
         <p>
-          Ứng dụng tự tính <b>ngày lễ chính thức của Brandenburg</b> (Herzfelde thuộc Brandenburg)
-          cho năm đang chọn, gồm cả lễ cố định và lễ theo Phục Sinh. Ngày lễ được xử lý{" "}
-          <b>như Chủ nhật</b> (nhu cầu + khung giờ riêng, mặc định 11:00–22:00). Danh sách lễ trong
-          tháng hiện ở tab <b>Cài đặt</b>.
+          Ngày lễ được tính <b>theo bang của cửa hàng đang chọn</b>, gồm cả lễ cố định và lễ theo
+          Phục Sinh. Hai tiệm ở <b>Heidenheim</b> nên áp ngày lễ <b>Baden-Württemberg</b>. Ngày lễ
+          được xử lý <b>như Chủ nhật</b> (nhu cầu + khung giờ riêng). Danh sách lễ trong tháng hiện ở
+          tab <b>Cài đặt</b>.
         </p>
         <p className="mt-2">
-          Riêng Brandenburg có <b>Ostersonntag</b> và <b>Pfingstsonntag</b> là lễ chính thức (ít bang
-          nào có), và có <b>Reformationstag (31.10)</b>; ngược lại <b>không</b> có Fronleichnam và
-          Allerheiligen.
+          Baden-Württemberg có <b>Heilige Drei Könige (6.1)</b>, <b>Fronleichnam</b> và{" "}
+          <b>Allerheiligen (1.11)</b>. Không có Reformationstag, cũng không tính Ostersonntag và
+          Pfingstsonntag là lễ chính thức — khác hẳn Brandenburg, lệch nhau 6 ngày mỗi năm.
         </p>
       </Section>
 

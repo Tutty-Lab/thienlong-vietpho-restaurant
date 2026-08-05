@@ -20,7 +20,7 @@ describe("Ausnahmen je Datum (Overrides)", () => {
 
     const result = validateSchedule(SAMPLE_EMPLOYEES, shifts);
     expect(result.valid).toBe(true);
-    expect(shifts.reduce((a, s) => a + s.paidMinutes, 0)).toBe(1022 * 60);
+    expect(shifts.reduce((a, s) => a + s.paidMinutes, 0)).toBe(793 * 60);
   });
 
   it("halber Tag: Mitarbeiter arbeiten KÜRZERE Schichten (nicht frei), Soll exakt", () => {
@@ -41,16 +41,17 @@ describe("Ausnahmen je Datum (Overrides)", () => {
       employees: SAMPLE_EMPLOYEES,
     });
     const onHalfDay = shifts.filter((x) => x.date === "2026-08-10");
-    // Es wird an dem Tag gearbeitet – aber nur mit passenden (kurzen) Schichten.
+    // Es wird an dem Tag gearbeitet – aber nur mit Schichten, die ins 5,5-h-
+    // Fenster passen. Halbe Stunden sind erlaubt, das Fenster wird ausgenutzt.
     expect(onHalfDay.length).toBeGreaterThan(0);
     for (const s of onHalfDay) {
       expect(s.endMinutes - s.startMinutes).toBeLessThanOrEqual(330);
-      expect(s.paidMinutes).toBeLessThanOrEqual(5 * 60);
+      expect(s.paidMinutes).toBeLessThanOrEqual(5.5 * 60);
       expect(s.startMinutes).toBeGreaterThanOrEqual(10 * 60 + 30);
       expect(s.endMinutes).toBeLessThanOrEqual(16 * 60);
     }
     const result = validateSchedule(SAMPLE_EMPLOYEES, shifts);
     expect(result.valid).toBe(true);
-    expect(shifts.reduce((a, s) => a + s.paidMinutes, 0)).toBe(1022 * 60);
+    expect(shifts.reduce((a, s) => a + s.paidMinutes, 0)).toBe(793 * 60);
   });
 });

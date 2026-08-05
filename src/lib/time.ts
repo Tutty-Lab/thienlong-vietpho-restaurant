@@ -25,18 +25,24 @@ export function minutesToTime(totalMinutes: number): string {
 }
 
 /**
- * Pausenregel (Vorgabe des Chefs):
- * - unter 6 h  -> 0 Minuten
- * - 6 h und 7 h -> 30 Minuten
- * - ab 8 h     -> 60 Minuten (8 h Arbeit + 1 h Pause = 9 h Anwesenheit)
+ * Pause für einen DURCHGEHENDEN Dienst:
+ * - bis 6 h  -> 0 Minuten
+ * - über 6 h -> 30 Minuten
+ * - ab 8 h   -> 60 Minuten
  *
- * Liegt bei der 6-h-Schicht bewusst über dem Gesetz: ArbZG §4 verlangt erst
- * ÜBER 6 h eine Pause, hier bekommt schon die glatte 6-h-Schicht ihre 30 min.
+ * Für einen GETEILTEN Dienst (zwei Stücke, dazwischen ist der Laden zu) gilt
+ * das nicht: dort ist die Schließung selbst die Ruhezeit, es wird keine Pause
+ * gerechnet. Siehe pauseForShift().
  */
 export function calculatePause(paidMinutes: number): number {
   if (paidMinutes >= 480) return 60;
-  if (paidMinutes >= 360) return 30;
+  if (paidMinutes > 360) return 30;
   return 0;
+}
+
+/** Pause je nach Dienstart: geteilt = 0, durchgehend = Regel oben. */
+export function pauseForShift(paidMinutes: number, isSplit: boolean): number {
+  return isSplit ? 0 : calculatePause(paidMinutes);
 }
 
 /**

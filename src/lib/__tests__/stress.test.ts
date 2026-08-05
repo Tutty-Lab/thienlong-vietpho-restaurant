@@ -3,7 +3,7 @@ import { generateSchedule } from "../scheduler";
 import { maxConsecutiveRun } from "../consecutive";
 import { calculatePause } from "../time";
 import { DEFAULT_WORK_HOURS, resolveDay, type OverrideMap } from "../workHours";
-import { brandenburgHolidays } from "../holidays";
+import { holidaysOf } from "../holidays";
 import { splitTargetHours } from "../splitTargetHours";
 import type { Employee, Shift } from "../../types";
 
@@ -17,7 +17,7 @@ const mk = (id: string, type: Employee["employmentType"], hours: number): Employ
 /** Prüft alle harten Regeln, die der Scheduler laut Kopfkommentar zusichert. */
 function audit(shifts: Shift[], employees: Employee[], year: number, overrides: OverrideMap = {}) {
   const problems: string[] = [];
-  const holidays = brandenburgHolidays(year);
+  const holidays = holidaysOf(year, "BW");
 
   // 1. Monats-Soll exakt getroffen
   for (const e of employees) {
@@ -47,21 +47,30 @@ function audit(shifts: Shift[], employees: Employee[], year: number, overrides: 
       problems.push(`${s.date}: có ca dù đóng cửa`);
       continue;
     }
-    if (s.startMinutes < day.window.startMinutes || s.endMinutes > day.window.endMinutes) {
+    // Jedes Stück muss in einem Block liegen (geteilter Dienst: zwei Stücke).
+    const parts = s.segments ?? [{ startMinutes: s.startMinutes, endMinutes: s.endMinutes }];
+    const inBlock = parts.every((p) =>
+      day.blocks.some((b) => p.startMinutes >= b.startMinutes && p.endMinutes <= b.endMinutes),
+    );
+    if (!inBlock) {
       problems.push(`${s.date}: ca ${s.startMinutes}-${s.endMinutes} ngoài khung`);
     }
   }
 
   // 5. Pausenregel + Rechenweg stimmen
   for (const s of shifts) {
-    if (s.pauseMinutes !== calculatePause(s.paidMinutes)) {
+    const split = Boolean(s.segments && s.segments.length > 1);
+    if (s.pauseMinutes !== (split ? 0 : calculatePause(s.paidMinutes))) {
       problems.push(`${s.date}/${s.employeeId}: nghỉ ${s.pauseMinutes}p cho ca ${s.paidMinutes / 60}h`);
     }
-    if (s.endMinutes - s.startMinutes - s.pauseMinutes !== s.paidMinutes) {
+    const paid = split
+      ? s.segments!.reduce((x, g) => x + (g.endMinutes - g.startMinutes), 0)
+      : s.endMinutes - s.startMinutes - s.pauseMinutes;
+    if (paid !== s.paidMinutes) {
       problems.push(`${s.date}/${s.employeeId}: giờ công không khớp`);
     }
-    if (s.paidMinutes < 4 * 60 || s.paidMinutes > 8 * 60) {
-      problems.push(`${s.date}/${s.employeeId}: ca ${s.paidMinutes / 60}h ngoài 4..8h`);
+    if (s.paidMinutes < 3 * 60 || s.paidMinutes > 10 * 60) {
+      problems.push(`${s.date}/${s.employeeId}: ca ${s.paidMinutes / 60}h ngoài 3..10h`);
     }
   }
 
@@ -84,10 +93,10 @@ describe("splitTargetHours: định mức nào chia được", () => {
 
 describe("Scheduler: chạy thử 12 tháng liên tiếp", () => {
   const employees = [
-    mk("VZ1", "VOLLZEIT", 176),
-    mk("VZ2", "VOLLZEIT", 180),
-    mk("VZ3", "VOLLZEIT", 179),
-    mk("VZ4", "VOLLZEIT", 178),
+    mk("VZ1", "VOLLZEIT", 120),
+    mk("VZ2", "VOLLZEIT", 124),
+    mk("VZ3", "VOLLZEIT", 118),
+    mk("VZ4", "VOLLZEIT", 122),
     mk("TZ1", "TEILZEIT", 40),
     mk("TZ2", "TEILZEIT", 55),
     mk("TZ3", "TEILZEIT", 55),
@@ -135,7 +144,7 @@ describe("Scheduler: định mức cao ép sát số ngày trong tháng", () => 
 
 describe("Scheduler: có ngày đóng cửa", () => {
   it("không xếp ca vào ngày đóng cửa và vẫn đủ định mức", () => {
-    const employees = [mk("VZ1", "VOLLZEIT", 160), mk("TZ1", "TEILZEIT", 60)];
+    const employees = [mk("VZ1", "VOLLZEIT", 110), mk("TZ1", "TEILZEIT", 60)];
     const overrides: OverrideMap = {};
     for (const d of ["2026-03-02", "2026-03-09", "2026-03-16", "2026-03-23", "2026-03-30"]) {
       overrides[d] = { date: d, closed: true };

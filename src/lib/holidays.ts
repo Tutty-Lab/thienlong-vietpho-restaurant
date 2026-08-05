@@ -34,30 +34,50 @@ function iso(date: Date): string {
   return format(date, "yyyy-MM-dd");
 }
 
-/** Datum -> Name aller gesetzlichen Feiertage in Brandenburg eines Jahres. */
-export function brandenburgHolidayNames(year: number): Map<string, string> {
+/** Bundesländer, für die dieses Projekt Feiertage kennt. */
+export type HolidayState = "BB" | "BW";
+
+export const HOLIDAY_STATE_LABELS: Record<HolidayState, string> = {
+  BB: "Brandenburg",
+  BW: "Baden-Württemberg",
+};
+
+/** Datum -> Name aller gesetzlichen Feiertage eines Bundeslandes. */
+export function holidayNames(year: number, state: HolidayState): Map<string, string> {
   const easter = easterSunday(year);
   const map = new Map<string, string>();
+
+  // Überall in Deutschland gleich.
   map.set(iso(new Date(year, 0, 1)), "Neujahr");
   map.set(iso(addDays(easter, -2)), "Karfreitag");
-  map.set(iso(easter), "Ostersonntag"); // in Brandenburg gesetzlich
   map.set(iso(addDays(easter, 1)), "Ostermontag");
   map.set(iso(new Date(year, 4, 1)), "Tag der Arbeit");
   map.set(iso(addDays(easter, 39)), "Christi Himmelfahrt");
-  map.set(iso(addDays(easter, 49)), "Pfingstsonntag"); // in Brandenburg gesetzlich
   map.set(iso(addDays(easter, 50)), "Pfingstmontag");
   map.set(iso(new Date(year, 9, 3)), "Tag der Deutschen Einheit");
-  map.set(iso(new Date(year, 9, 31)), "Reformationstag"); // Brandenburg, 31.10.
   map.set(iso(new Date(year, 11, 25)), "1. Weihnachtstag");
   map.set(iso(new Date(year, 11, 26)), "2. Weihnachtstag");
+
+  if (state === "BB") {
+    // Brandenburg: Oster- und Pfingstsonntag sind hier gesetzlich (selten),
+    // dazu der Reformationstag. Kein Fronleichnam, kein Allerheiligen.
+    map.set(iso(easter), "Ostersonntag");
+    map.set(iso(addDays(easter, 49)), "Pfingstsonntag");
+    map.set(iso(new Date(year, 9, 31)), "Reformationstag");
+  } else {
+    // Baden-Württemberg: katholisch geprägte Feiertage, kein Reformationstag.
+    map.set(iso(new Date(year, 0, 6)), "Heilige Drei Könige");
+    map.set(iso(addDays(easter, 60)), "Fronleichnam");
+    map.set(iso(new Date(year, 10, 1)), "Allerheiligen");
+  }
+
   return map;
 }
 
 /**
- * Alle gesetzlichen Feiertage Brandenburgs eines Jahres als ISO-Set
- * "yyyy-MM-dd". Leitet sich aus brandenburgHolidayNames ab, damit Set und
- * Namen niemals auseinanderlaufen können.
+ * Alle gesetzlichen Feiertage eines Bundeslandes als ISO-Set "yyyy-MM-dd".
+ * Leitet sich aus holidayNames ab, damit Set und Namen nie auseinanderlaufen.
  */
-export function brandenburgHolidays(year: number): Set<string> {
-  return new Set(brandenburgHolidayNames(year).keys());
+export function holidaysOf(year: number, state: HolidayState): Set<string> {
+  return new Set(holidayNames(year, state).keys());
 }

@@ -25,17 +25,18 @@ import {
   weekdayKeyOf,
   type WeekdayKey,
 } from "./demand";
-import { getShiftTemplate, type TemplateType } from "./shifts";
+import { buildSplitShift, getShiftTemplateForBlocks, type TemplateType } from "./shifts";
 import { consecutiveRunLengthWith, seededRandom } from "./consecutive";
 import { presenceFromPaid } from "./time";
 import {
   effectiveWeekdayKey,
   resolveDay,
+  longestBlockMinutes,
   type ResolvedDay,
   type OverrideMap,
   type WorkHoursConfig,
 } from "./workHours";
-import { brandenburgHolidays } from "./holidays";
+import { holidaysOf, type HolidayState } from "./holidays";
 
 export type GenerateInput = {
   year: number;
@@ -45,8 +46,10 @@ export type GenerateInput = {
   /** Ausnahmen für einzelne Daten (geschlossen / abweichende Zeiten). */
   overrides?: OverrideMap;
   employees: Employee[];
-  /** Feiertage als ISO-Set; Standard: Brandenburger Feiertage des Jahres. */
+  /** Feiertage als ISO-Set; sonst aus holidayState berechnet. */
   holidays?: Set<string>;
+  /** Bundesland für die Feiertage (Standard: Baden-Württemberg). */
+  holidayState?: HolidayState;
   /** Optionaler Seed; sonst aus Eingabedaten abgeleitet. */
   seed?: string;
 };
@@ -76,7 +79,9 @@ type SchedulerState = {
 
 /** Länge des Zeitfensters in Minuten (0 wenn geschlossen). */
 function windowLength(day: ResolvedDay): number {
-  return day.closed ? 0 : day.window.endMinutes - day.window.startMinutes;
+  // Maßgeblich ist der LÄNGSTE Block – eine Schicht muss komplett in einen
+  // Block passen und darf nie über die Mittagsschließung laufen.
+  return longestBlockMinutes(day);
 }
 
 let shiftIdCounter = 0;
@@ -90,19 +95,26 @@ function isWeekend(isoDate: string): boolean {
   return key === "friday" || key === "saturday";
 }
 
-const SHIFT_HOURS_DESC = [8, 7, 6, 5, 4] as const;
+// Halbe Stunden sind erlaubt, seit die gerechnete Pause weg ist: der
+// Abendblock Mo–Do ist 5,5 h lang und darf jetzt exakt ausgefüllt werden.
+// Vorher wurde auf 5 h abgerundet und jeden Abend eine halbe Stunde verschenkt.
+/** Obergrenze pro Tag. ArbZG §3 erlaubt bis 10 h, das deckt sich mit den
+ *  handgeschriebenen Plänen (dort kommen 9,5 und 10 h vor). */
+export const MAX_DAILY_MINUTES = 10 * 60;
+
+const SHIFT_HOURS_DESC = [10, 9.5, 9, 8.5, 8, 7.5, 7, 6.5, 6, 5.5, 5, 4.5, 4, 3.5, 3] as const;
 
 /**
  * Erlaubte Schichtlängen je Anstellungsart (Vorgabe des Chefs):
  * Vollzeit 6/7/8 h, Teilzeit die volle Bandbreite 4..8 h.
  */
 const ALLOWED_HOURS: Record<Employee["employmentType"], readonly number[]> = {
-  VOLLZEIT: [6, 7, 8],
-  TEILZEIT: [4, 5, 6, 7, 8],
+  VOLLZEIT: [6, 6.5, 7, 7.5, 8, 8.5, 9, 9.5, 10],
+  TEILZEIT: [3, 3.5, 4, 4.5, 5, 5.5, 6, 6.5, 7, 7.5, 8, 8.5, 9, 9.5, 10],
 };
 
 /** Alle überhaupt zulässigen Längen – Rückfall, wenn das Fenster eng ist. */
-const ALL_HOURS: readonly number[] = [4, 5, 6, 7, 8];
+const ALL_HOURS: readonly number[] = [3, 3.5, 4, 4.5, 5, 5.5, 6, 6.5, 7, 7.5, 8, 8.5, 9, 9.5, 10];
 
 /**
  * Lässt sich `hours` restlos in Schichten aus `allowed` zerlegen?
@@ -163,8 +175,8 @@ export function chooseShiftHours(
   rng?: () => number,
 ): number {
   const remainingHours = remainingMinutes / 60;
-  const cap = Math.min(8, maxHours, remainingHours);
-  if (cap < 4) return 0;
+  const cap = Math.min(MAX_DAILY_MINUTES / 60, maxHours, remainingHours);
+  if (cap < 3) return 0;
 
   // Erlaubte Längen je Anstellungsart (Vorgabe des Chefs): Vollzeit macht keine
   // Kurzschichten, Teilzeit darf die ganze Bandbreite.
@@ -242,8 +254,29 @@ function makeShift(
   paidMinutes: number,
 ): Shift {
   const type = chooseTemplateType(state, isoDate, employee.employmentType);
-  const win = state.dayOf(isoDate).window;
-  const tpl = getShiftTemplate(paidMinutes / 60, type, win.startMinutes, win.endMinutes);
+  const blocks = state.dayOf(isoDate).blocks;
+
+  // Passt die Schicht nicht in einen einzelnen Block, wird sie geteilt:
+  // ein Stück mittags, eines abends. Ohne gerechnete Pause.
+  if (!fitsSingleBlock(paidMinutes, blocks)) {
+    const split = buildSplitShift(paidMinutes, type, blocks);
+    if (split) {
+      return {
+        id: nextShiftId(),
+        employeeId: employee.id,
+        date: isoDate,
+        startMinutes: split.segments[0].startMinutes,
+        endMinutes: split.segments[split.segments.length - 1].endMinutes,
+        pauseMinutes: 0,
+        segments: split.segments,
+        paidMinutes: split.paidMinutes,
+        shiftType: type,
+        generated: true,
+      };
+    }
+  }
+
+  const tpl = getShiftTemplateForBlocks(paidMinutes / 60, type, blocks);
   return {
     id: nextShiftId(),
     employeeId: employee.id,
@@ -255,6 +288,22 @@ function makeShift(
     shiftType: tpl.type,
     generated: true,
   };
+}
+
+/** Passt diese bezahlte Zeit (inkl. nötiger Pause) in EINEN Block? */
+function fitsSingleBlock(paidMinutes: number, blocks: ResolvedDay["blocks"]): boolean {
+  const presence = presenceFromPaid(paidMinutes);
+  return blocks.some((b) => b.endMinutes - b.startMinutes >= presence);
+}
+
+/** Längste Schicht, die der Tag hergibt – einzeln ODER geteilt. */
+function maxPaidForDay(day: ResolvedDay): number {
+  if (day.closed) return 0;
+  const single = maxShiftHoursForWindow(longestBlockMinutes(day)) * 60;
+  if (day.blocks.length < 2) return single;
+  // Geteilt: beide Blöcke zusammen, ohne Pause.
+  const both = day.blocks.reduce((a, b) => a + (b.endMinutes - b.startMinutes), 0);
+  return Math.max(single, Math.min(both, MAX_DAILY_MINUTES));
 }
 
 function applyShift(state: SchedulerState, shift: Shift): void {
@@ -291,7 +340,7 @@ function placeOneShift(state: SchedulerState, employee: Employee): boolean {
     if (worked.has(isoDate)) continue;
     const day = state.dayOf(isoDate);
     if (day.closed) continue;
-    if (maxShiftHoursForWindow(windowLength(day)) === 0) continue;
+    if (maxPaidForDay(day) === 0) continue;
     if (consecutiveRunLengthWith(worked, isoDate) > 6) continue;
     daysLeft += 1;
   }
@@ -311,7 +360,7 @@ function placeOneShift(state: SchedulerState, employee: Employee): boolean {
     if (day.closed) continue; // Betriebsruhe -> kein Dienst
 
     // Längste Schicht, die ins Fenster passt UND den Rest exakt aufteilbar lässt.
-    const maxHours = maxShiftHoursForWindow(windowLength(day));
+    const maxHours = maxPaidForDay(day) / 60;
     const hours = chooseShiftHours(
       remaining,
       maxHours,
@@ -402,11 +451,10 @@ function repairDemand(state: SchedulerState, employeesById: Map<string, Employee
 
       const oldCostFrom = dateCost(state, from);
 
-      const presence = presenceFromPaid(shift.paidMinutes);
       for (const to of state.dates) {
         if (to === from || worked.has(to)) continue;
         const day = state.dayOf(to);
-        if (day.closed || windowLength(day) < presence) continue; // geschlossen / passt nicht
+        if (day.closed || maxPaidForDay(day) < shift.paidMinutes) continue; // passt nicht
         // 6-Tage-Regel prüfen, als ob "from" bereits entfernt wäre.
         const trial = new Set(worked);
         trial.delete(from);
@@ -439,11 +487,27 @@ function repairDemand(state: SchedulerState, employeesById: Map<string, Employee
 /** Dreht NUR Früh/Spät um. Dauer bleibt gleich => Monats-Soll bleibt exakt. */
 function retypeShift(state: SchedulerState, shift: Shift, type: TemplateType): void {
   if (shift.shiftType === type) return;
-  const win = state.dayOf(shift.date).window;
-  const tpl = getShiftTemplate(shift.paidMinutes / 60, type, win.startMinutes, win.endMinutes);
+  const blocks = state.dayOf(shift.date).blocks;
   const ds = state.dateState.get(shift.date)!;
 
+  // Ein geteilter Dienst bleibt geteilt – nur das Abendstück wandert an den
+  // Anfang oder ans Ende des Abendblocks. Wird das übersehen, bekommt die
+  // Schicht plötzlich eine gerechnete Pause und der Plan wird ungültig.
+  const split =
+    shift.segments && shift.segments.length > 1
+      ? buildSplitShift(shift.paidMinutes, type, blocks)
+      : null;
+  const tpl = split
+    ? {
+        startMinutes: split.segments[0].startMinutes,
+        endMinutes: split.segments[split.segments.length - 1].endMinutes,
+        pauseMinutes: 0,
+        type,
+      }
+    : getShiftTemplateForBlocks(shift.paidMinutes / 60, type, blocks);
+
   if (shift.shiftType === "LATE") ds.latePaid -= shift.paidMinutes;
+  if (split) shift.segments = split.segments;
   shift.startMinutes = tpl.startMinutes;
   shift.endMinutes = tpl.endMinutes;
   shift.pauseMinutes = tpl.pauseMinutes;
@@ -496,14 +560,14 @@ function balanceShiftTypes(state: SchedulerState): void {
       list.length === 0 ? null : list.reduce((a, b) => (a.paidMinutes <= b.paidMinutes ? a : b));
 
     let flipped: Shift | null = null;
-    if (!onDay.some((s) => s.startMinutes === day.window.startMinutes)) {
+    if (!onDay.some((s) => s.startMinutes === day.blocks[0].startMinutes)) {
       const victim = shortestOf(onDay.filter((s) => s.shiftType === "LATE"));
       if (victim) {
         retypeShift(state, victim, "EARLY");
         flipped = victim;
       }
     }
-    if (!onDay.some((s) => s.endMinutes === day.window.endMinutes)) {
+    if (!onDay.some((s) => s.endMinutes === day.blocks[day.blocks.length - 1].endMinutes)) {
       const victim = shortestOf(
         onDay.filter((s) => s.shiftType === "EARLY" && s !== flipped),
       );
@@ -596,7 +660,7 @@ function buildUnmetMessage(
 export function generateSchedule(input: GenerateInput): Shift[] {
   shiftIdCounter = 0;
   const { year, month, workHours, employees } = input;
-  const holidays = input.holidays ?? brandenburgHolidays(year);
+  const holidays = input.holidays ?? holidaysOf(year, input.holidayState ?? "BW");
   const overrides = input.overrides ?? {};
 
   const effKeyOf = (isoDate: string): WeekdayKey => effectiveWeekdayKey(isoDate, holidays);
