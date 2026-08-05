@@ -6,11 +6,12 @@
 import {
   AZUBI_HOURS_IN_TERM,
   AZUBI_HOURS_OUT_OF_TERM,
-  AZUBI_WORKDAYS_IN_TERM,
   type AzubiConfig,
   type Employee,
-  type WeekdayName,
 } from "../types";
+
+/** Fuer die monatliche Sollzeit gilt ein fester Abrechnungsmonat mit 4 Wochen. */
+export const AZUBI_MONTHLY_WEEKS = 4;
 
 export const DEFAULT_AZUBI_CONFIG: AzubiConfig = {
   inSchoolTerm: true,
@@ -87,59 +88,17 @@ export function azubiWeeklyHours(cfg: AzubiConfig | undefined): number {
   return azubiEffectiveWeeklyHours(cfg);
 }
 
-const WEEKDAY_BY_JS_DAY: WeekdayName[] = [
-  "sunday",
-  "monday",
-  "tuesday",
-  "wednesday",
-  "thursday",
-  "friday",
-  "saturday",
-];
-
-/** Anteilige Schulzeit-Wochenstunden für die im Monat liegenden Arbeitstage. */
-function azubiTermHoursInMonth(cfg: AzubiConfig, year: number, month: number): number {
-  const eligibleDaysByWeek = new Map<string, number>();
-  const schoolDays = new Set(cfg.schoolDays);
-  const daysInMonth = new Date(year, month, 0).getDate();
-
-  for (let day = 1; day <= daysInMonth; day += 1) {
-    const date = new Date(year, month - 1, day);
-    if (schoolDays.has(WEEKDAY_BY_JS_DAY[date.getDay()])) continue;
-
-    const monday = new Date(date);
-    monday.setDate(date.getDate() - ((date.getDay() + 6) % 7));
-    const weekKey = `${monday.getFullYear()}-${monday.getMonth() + 1}-${monday.getDate()}`;
-    eligibleDaysByWeek.set(weekKey, (eligibleDaysByWeek.get(weekKey) ?? 0) + 1);
-  }
-
-  const weeklyHours = azubiEffectiveWeeklyHours(cfg, true);
-  let hours = 0;
-  for (const eligibleDays of eligibleDaysByWeek.values()) {
-    hours +=
-      weeklyHours *
-      (Math.min(eligibleDays, AZUBI_WORKDAYS_IN_TERM) / AZUBI_WORKDAYS_IN_TERM);
-  }
-  return hours;
-}
-
 /**
- * Monats-Soll in Minuten, auf eine halbe Stunde gerundet. In der Schulzeit
- * zählt jede volle Kalenderwoche mit drei Arbeitstagen voll; Randwochen zählen
- * nur anteilig nach den tatsächlich im Monat liegenden, schulfreien Tagen.
+ * Monats-Soll in Minuten. Der Abrechnungsmonat hat immer vier Wochen, damit
+ * Monate, die fünf Kalenderwochen berühren, nicht auf 112 h oder 120 h steigen.
  */
 export function azubiMonthlyMinutes(
   cfg: AzubiConfig | undefined,
-  year: number,
-  month: number,
+  _year: number,
+  _month: number,
 ): number {
   const normalized = azubiConfigOf(cfg);
-  const daysInMonth = new Date(year, month, 0).getDate();
-  const hours = normalized.inSchoolTerm
-    ? azubiTermHoursInMonth(normalized, year, month)
-    : (azubiWeeklyHours(normalized) * daysInMonth) / 7;
-  const rounded = Math.round(hours * 2) / 2; // halbe Stunden
-  return Math.round(rounded * 60);
+  return Math.round(azubiWeeklyHours(normalized) * AZUBI_MONTHLY_WEEKS * 60);
 }
 
 /** Soll eines Mitarbeiters – bei Azubis immer gerechnet, sonst wie eingetragen. */

@@ -151,7 +151,7 @@ export function EmployeesTab({ store }: { store: UseScheduleReturn }) {
                   {isAzubi ? (
                     <div
                       className="rounded border border-slate-200 bg-slate-50 px-2 py-1 text-sm text-slate-700"
-                      title="Được tính tự động theo số giờ mỗi tuần và số ngày của tháng"
+                      title="Được tính tự động theo số giờ mỗi tuần × 4 tuần"
                     >
                       <b>{emp.targetMinutes / 60}h</b> · tự động
                     </div>

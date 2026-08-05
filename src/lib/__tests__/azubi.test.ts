@@ -79,9 +79,11 @@ function manualShift(id: string, date: string, paidMinutes: number): Shift {
 }
 
 describe("Azubi định mức tự động", () => {
-  it("mặc định dùng kỳ học và tính theo các tuần nằm trong tháng", () => {
+  it("dùng định mức cố định 4 tuần, không tăng thành 112h hoặc 120h", () => {
     expect(azubiWeeklyHours(undefined)).toBe(AZUBI_HOURS_IN_TERM);
-    expect(azubiMonthlyMinutes(DEFAULT_AZUBI_CONFIG, 2026, 9)).toBe(104 * 60);
+    for (let month = 1; month <= 12; month += 1) {
+      expect(azubiMonthlyMinutes(DEFAULT_AZUBI_CONFIG, 2026, month)).toBe(96 * 60);
+    }
   });
 
   it("không tạo định mức vượt sức chứa khi tháng kết thúc bằng 2 ngày học", () => {
@@ -109,9 +111,9 @@ describe("Azubi định mức tự động", () => {
     ).not.toThrow();
   });
 
-  it("ngoài kỳ học hỗ trợ cả nửa giờ", () => {
+  it("ngoài kỳ học cũng dùng định mức cố định 4 tuần", () => {
     expect(azubiMonthlyMinutes({ inSchoolTerm: false, schoolDays: [] }, 2026, 7)).toBe(
-      170.5 * 60,
+      154 * 60,
     );
   });
 
@@ -126,7 +128,7 @@ describe("Azubi định mức tự động", () => {
     expect(azubiConfiguredWeeklyHours(cfg, true)).toBe(18);
     expect(azubiEffectiveWeeklyHours(cfg, true)).toBe(18);
     expect(azubiEffectiveWeeklyHours(cfg, false)).toBe(30);
-    expect(azubiMonthlyMinutes(cfg, 2026, 9)).toBe(78 * 60);
+    expect(azubiMonthlyMinutes(cfg, 2026, 9)).toBe(72 * 60);
   });
 
   it("cảnh báo và giới hạn nếu chủ đặt 25h trong kỳ học", () => {
@@ -140,7 +142,7 @@ describe("Azubi định mức tự động", () => {
     expect(azubiExceedsWeeklyMaximum(cfg, true)).toBe(true);
     expect(azubiConfiguredWeeklyHours(cfg, true)).toBe(25);
     expect(azubiEffectiveWeeklyHours(cfg, true)).toBe(AZUBI_HOURS_IN_TERM);
-    expect(azubiMonthlyMinutes(cfg, 2026, 9)).toBe(104 * 60);
+    expect(azubiMonthlyMinutes(cfg, 2026, 9)).toBe(96 * 60);
   });
 
   it("cảnh báo và giới hạn nếu chủ đặt quá 38,5h ngoài kỳ học", () => {
@@ -154,7 +156,7 @@ describe("Azubi định mức tự động", () => {
     expect(azubiExceedsWeeklyMaximum(cfg, false)).toBe(true);
     expect(azubiConfiguredWeeklyHours(cfg, false)).toBe(40);
     expect(azubiEffectiveWeeklyHours(cfg, false)).toBe(AZUBI_HOURS_OUT_OF_TERM);
-    expect(azubiMonthlyMinutes(cfg, 2026, 7)).toBe(170.5 * 60);
+    expect(azubiMonthlyMinutes(cfg, 2026, 7)).toBe(154 * 60);
   });
 
   it("ghi đè định mức nhập tay cũ và thêm cấu hình mặc định", () => {
@@ -170,7 +172,7 @@ describe("Azubi định mức tự động", () => {
     );
 
     expect(employee.azubi).toEqual(DEFAULT_AZUBI_CONFIG);
-    expect(employee.targetMinutes).toBe(104 * 60);
+    expect(employee.targetMinutes).toBe(96 * 60);
   });
 
   it("scheduler đạt chính xác định mức tự động trong kỳ học", () => {
@@ -229,7 +231,7 @@ describe("Azubi định mức tự động", () => {
       holidayState: "BW",
     });
 
-    expect(shifts.reduce((sum, shift) => sum + shift.paidMinutes, 0)).toBe(78 * 60);
+    expect(shifts.reduce((sum, shift) => sum + shift.paidMinutes, 0)).toBe(72 * 60);
     for (const [, minutes] of perWeek(shifts)) {
       expect(minutes).toBeLessThanOrEqual(18 * 60);
     }
@@ -385,7 +387,7 @@ describe("Azubi ngoài kỳ học", () => {
       holidayState: "BW",
     });
 
-    expect(configured.targetMinutes).toBe(133 * 60);
+    expect(configured.targetMinutes).toBe(120 * 60);
     expect(configuredShifts.reduce((a, s) => a + s.paidMinutes, 0)).toBe(
       configured.targetMinutes,
     );

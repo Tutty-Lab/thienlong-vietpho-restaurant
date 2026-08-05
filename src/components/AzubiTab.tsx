@@ -8,6 +8,7 @@ import {
 } from "../types";
 import { WEEKDAY_LABELS_VI } from "../lib/demand";
 import {
+  AZUBI_MONTHLY_WEEKS,
   azubiConfigOf,
   azubiConfiguredWeeklyHours,
   azubiEffectiveWeeklyHours,
@@ -53,6 +54,9 @@ export function AzubiTab({ store }: { store: UseScheduleReturn }) {
           chia giờ làm trên <b>{AZUBI_WORKDAYS_IN_TERM} ngày/tuần</b> để còn 2 ngày nghỉ. Giờ làm do chủ
           đặt nhưng không vượt <b>{AZUBI_HOURS_IN_TERM}h/tuần</b>. Ngoài kỳ học:
           không có ngày học, mức tối đa là <b>{AZUBI_HOURS_OUT_OF_TERM}h/tuần</b>.
+          Định mức tháng luôn tính cố định <b>{AZUBI_MONTHLY_WEEKS} tuần</b>: tối đa
+          <b> {AZUBI_HOURS_IN_TERM * AZUBI_MONTHLY_WEEKS}h</b> trong kỳ và
+          <b> {AZUBI_HOURS_OUT_OF_TERM * AZUBI_MONTHLY_WEEKS}h</b> ngoài kỳ.
         </p>
       </section>
 
