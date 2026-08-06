@@ -1,13 +1,12 @@
 import { useState } from "react";
 import type { UseScheduleReturn } from "../hooks/useSchedule";
-import type { EmploymentType } from "../types";
+import { AZUBI_MONTHLY_WARNING_HOURS, type EmploymentType } from "../types";
 import { splitTargetHours } from "../lib/splitTargetHours";
 import {
-  azubiConfiguredWeeklyHours,
-  azubiExceedsWeeklyMaximum,
+  azubiConfigOf,
+  azubiMonthlyHoursNeedWarning,
+  azubiMonthlyHoursOutOfTerm,
   azubiMonthlyMinutes,
-  azubiWeeklyMaximum,
-  azubiWeeklyHours,
   DEFAULT_AZUBI_CONFIG,
 } from "../lib/azubi";
 
@@ -69,7 +68,7 @@ export function EmployeesTab({ store }: { store: UseScheduleReturn }) {
           <div className="flex flex-col sm:w-40" aria-live="polite">
             <span className="text-xs text-slate-600 mb-1">Giờ định mức</span>
             <div className="rounded border border-slate-200 bg-white px-2 py-1 text-sm text-slate-700">
-              <b>{newAzubiHours}h</b> · tự động
+              <b>{newAzubiHours}h</b> · kỳ học
             </div>
           </div>
         ) : (
@@ -105,18 +104,25 @@ export function EmployeesTab({ store }: { store: UseScheduleReturn }) {
         <div className="space-y-2">
           {schedule.employees.map((emp) => {
             const isAzubi = emp.employmentType === "AZUBI";
-            const azubiExceeded = isAzubi && azubiExceedsWeeklyMaximum(emp.azubi);
+            const azubiConfig = isAzubi ? azubiConfigOf(emp.azubi) : null;
+            const azubiMonthlyHours = azubiConfig
+              ? azubiMonthlyHoursOutOfTerm(azubiConfig)
+              : 0;
+            const azubiWarning =
+              azubiConfig !== null &&
+              !azubiConfig.inSchoolTerm &&
+              azubiMonthlyHoursNeedWarning(azubiConfig);
             const info = isAzubi
               ? {
-                  ok: !azubiExceeded,
-                  text: azubiExceeded
-                    ? `⚠ ${azubiConfiguredWeeklyHours(emp.azubi)}h > max ${azubiWeeklyMaximum(
-                        emp.azubi?.inSchoolTerm ?? true,
-                      )}h`
-                    : `tự động · ${azubiWeeklyHours(emp.azubi)}h/tuần`,
+                  ok: !azubiWarning,
+                  text: azubiConfig?.inSchoolTerm
+                    ? "0h · kỳ học"
+                    : azubiWarning
+                      ? `⚠ ${azubiMonthlyHours}h/tháng`
+                      : `${azubiMonthlyHours}h/tháng · chủ đặt`,
                 }
               : splitInfo(emp.targetMinutes / 60, emp.employmentType);
-            const tooMany = emp.targetMinutes / 60 > WARN_HOURS;
+            const tooMany = !isAzubi && emp.targetMinutes / 60 > WARN_HOURS;
             return (
               <div
                 key={emp.id}
@@ -149,12 +155,37 @@ export function EmployeesTab({ store }: { store: UseScheduleReturn }) {
                 <label className="flex flex-col sm:w-32">
                   <span className="text-xs text-slate-500 mb-1 sm:hidden">Giờ định mức</span>
                   {isAzubi ? (
-                    <div
-                      className="rounded border border-slate-200 bg-slate-50 px-2 py-1 text-sm text-slate-700"
-                      title="Được tính tự động theo số giờ mỗi tuần × 4 tuần"
-                    >
-                      <b>{emp.targetMinutes / 60}h</b> · tự động
-                    </div>
+                    azubiConfig?.inSchoolTerm ? (
+                      <div
+                        className="rounded border border-emerald-200 bg-emerald-50 px-2 py-1 text-sm text-emerald-800"
+                        title="Trong kỳ học không xếp ca đi làm"
+                      >
+                        <b>0h</b> · kỳ học
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-1">
+                        <input
+                          type="number"
+                          min={0}
+                          step={0.5}
+                          className={`${inputClass} w-full ${
+                            azubiWarning ? "border-amber-400 text-amber-900" : ""
+                          }`}
+                          value={azubiMonthlyHours}
+                          aria-label={`Giờ tháng ngoài kỳ học của ${emp.name}`}
+                          aria-describedby={azubiWarning ? `azubi-warning-${emp.id}` : undefined}
+                          onChange={(event) =>
+                            updateEmployee(emp.id, {
+                              azubi: {
+                                ...azubiConfigOf(emp.azubi),
+                                monthlyHoursOutOfTerm: Math.max(0, Number(event.target.value)),
+                              },
+                            })
+                          }
+                        />
+                        <span className="text-slate-400">h</span>
+                      </div>
+                    )
                   ) : (
                     <div className="flex items-center gap-1">
                       <input
@@ -189,7 +220,7 @@ export function EmployeesTab({ store }: { store: UseScheduleReturn }) {
                 <div className="flex items-center justify-between sm:flex-col sm:items-end sm:justify-end gap-1 sm:w-24">
                   <span
                     className={`text-xs ${
-                      azubiExceeded
+                      azubiWarning
                         ? "font-medium text-amber-700"
                         : info.ok
                           ? "text-slate-500"
@@ -198,6 +229,15 @@ export function EmployeesTab({ store }: { store: UseScheduleReturn }) {
                   >
                     {info.text}
                   </span>
+                  {azubiWarning && (
+                    <span
+                      id={`azubi-warning-${emp.id}`}
+                      className="text-xs font-medium text-amber-700"
+                      title={`Từ ${AZUBI_MONTHLY_WARNING_HOURS}h/tháng lịch có thể khó xếp; số giờ vẫn được giữ nguyên.`}
+                    >
+                      cảnh báo ≥{AZUBI_MONTHLY_WARNING_HOURS}h
+                    </span>
+                  )}
                   {tooMany && (
                     <span
                       className="text-xs text-amber-600 font-medium"

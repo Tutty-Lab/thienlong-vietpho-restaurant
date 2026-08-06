@@ -168,9 +168,8 @@ export function useSchedule() {
     storeIdRef.current = storeId;
   }, [storeId]);
 
-  // Azubi-Soll wird nie von Hand gepflegt, sondern aus den Wochenstunden
-  // gerechnet (24 h in der Schulzeit, sonst 38,5 h). Sobald Monat, Jahr oder
-  // die Azubi-Einstellungen wechseln, wird es hier nachgezogen.
+  // In der Schulzeit gilt fuer Azubis 0 h. Ausserhalb kommt das Monatssoll aus
+  // der Chef-Eingabe. Bei Modus- oder Konfigurationswechsel wird es nachgezogen.
   useEffect(() => {
     setSchedule((s) => {
       let changed = false;

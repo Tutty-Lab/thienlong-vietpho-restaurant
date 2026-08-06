@@ -1,28 +1,44 @@
 // ============================================================================
-// Monats-Soll eines Azubis. Wird aus den Wochenstunden des Chefs abgeleitet;
-// 24 h in der Berufsschulzeit und 38,5 h außerhalb bleiben harte Obergrenzen.
+// Azubi-Sollzeit und Migration alter Wochenstunden-Einstellungen.
+// In der Schulzeit gilt 0 h; ausserhalb setzt der Chef das Monatssoll selbst.
 // ============================================================================
 
 import {
   AZUBI_HOURS_IN_TERM,
   AZUBI_HOURS_OUT_OF_TERM,
+  AZUBI_MONTHLY_WARNING_HOURS,
   type AzubiConfig,
   type Employee,
 } from "../types";
 
-/** Fuer die monatliche Sollzeit gilt ein fester Abrechnungsmonat mit 4 Wochen. */
-export const AZUBI_MONTHLY_WEEKS = 4;
+/** Standard aus der bisherigen Vorgabe 38,5 h/Woche mal vier Wochen. */
+export const DEFAULT_AZUBI_MONTHLY_HOURS_OUT_OF_TERM = AZUBI_HOURS_OUT_OF_TERM * 4;
 
 export const DEFAULT_AZUBI_CONFIG: AzubiConfig = {
   inSchoolTerm: true,
   schoolDays: ["monday", "tuesday"],
-  weeklyHoursInTerm: AZUBI_HOURS_IN_TERM,
-  weeklyHoursOutOfTerm: AZUBI_HOURS_OUT_OF_TERM,
+  monthlyHoursOutOfTerm: DEFAULT_AZUBI_MONTHLY_HOURS_OUT_OF_TERM,
 };
 
-function normalizeWeeklyHours(value: number | undefined, fallback: number): number {
+function normalizeHours(value: number | undefined, fallback: number): number {
   if (!Number.isFinite(value)) return fallback;
   return Math.max(0, Math.round((value ?? fallback) * 2) / 2);
+}
+
+function monthlyHoursFrom(source: AzubiConfig): number {
+  if (Number.isFinite(source.monthlyHoursOutOfTerm)) {
+    return normalizeHours(
+      source.monthlyHoursOutOfTerm,
+      DEFAULT_AZUBI_MONTHLY_HOURS_OUT_OF_TERM,
+    );
+  }
+  if (Number.isFinite(source.weeklyHoursOutOfTerm)) {
+    return normalizeHours(
+      (source.weeklyHoursOutOfTerm ?? AZUBI_HOURS_OUT_OF_TERM) * 4,
+      DEFAULT_AZUBI_MONTHLY_HOURS_OUT_OF_TERM,
+    );
+  }
+  return DEFAULT_AZUBI_MONTHLY_HOURS_OUT_OF_TERM;
 }
 
 function normalizedAzubiConfig(cfg: AzubiConfig | undefined): AzubiConfig {
@@ -30,14 +46,7 @@ function normalizedAzubiConfig(cfg: AzubiConfig | undefined): AzubiConfig {
   return {
     inSchoolTerm: source.inSchoolTerm,
     schoolDays: [...source.schoolDays],
-    weeklyHoursInTerm: normalizeWeeklyHours(
-      source.weeklyHoursInTerm,
-      AZUBI_HOURS_IN_TERM,
-    ),
-    weeklyHoursOutOfTerm: normalizeWeeklyHours(
-      source.weeklyHoursOutOfTerm,
-      AZUBI_HOURS_OUT_OF_TERM,
-    ),
+    monthlyHoursOutOfTerm: monthlyHoursFrom(source),
   };
 }
 
@@ -50,58 +59,33 @@ export function azubiConfigOf(cfg: AzubiConfig | undefined): AzubiConfig {
   return normalizedAzubiConfig(cfg);
 }
 
-export function azubiWeeklyMaximum(inSchoolTerm: boolean): number {
-  return inSchoolTerm ? AZUBI_HOURS_IN_TERM : AZUBI_HOURS_OUT_OF_TERM;
+/** Vom Chef gesetztes Monatssoll ausserhalb der Schulzeit. */
+export function azubiMonthlyHoursOutOfTerm(cfg: AzubiConfig | undefined): number {
+  return azubiConfigOf(cfg).monthlyHoursOutOfTerm ?? DEFAULT_AZUBI_MONTHLY_HOURS_OUT_OF_TERM;
 }
 
-/** Vom Chef eingestellte Wochenstunden, noch ohne Anwendung der Obergrenze. */
-export function azubiConfiguredWeeklyHours(
-  cfg: AzubiConfig | undefined,
-  inSchoolTerm = azubiConfigOf(cfg).inSchoolTerm,
-): number {
-  const normalized = azubiConfigOf(cfg);
-  return inSchoolTerm
-    ? (normalized.weeklyHoursInTerm ?? AZUBI_HOURS_IN_TERM)
-    : (normalized.weeklyHoursOutOfTerm ?? AZUBI_HOURS_OUT_OF_TERM);
+/** 172 h und mehr werden nur markiert, nie gekappt oder deaktiviert. */
+export function azubiMonthlyHoursNeedWarning(cfg: AzubiConfig | undefined): boolean {
+  return azubiMonthlyHoursOutOfTerm(cfg) >= AZUBI_MONTHLY_WARNING_HOURS;
 }
 
-/** Tatsächlich verwendete Wochenstunden: Einstellung, begrenzt auf das Maximum. */
-export function azubiEffectiveWeeklyHours(
-  cfg: AzubiConfig | undefined,
-  inSchoolTerm = azubiConfigOf(cfg).inSchoolTerm,
-): number {
-  return Math.min(
-    azubiConfiguredWeeklyHours(cfg, inSchoolTerm),
-    azubiWeeklyMaximum(inSchoolTerm),
-  );
-}
-
-export function azubiExceedsWeeklyMaximum(
-  cfg: AzubiConfig | undefined,
-  inSchoolTerm = azubiConfigOf(cfg).inSchoolTerm,
-): boolean {
-  return azubiConfiguredWeeklyHours(cfg, inSchoolTerm) > azubiWeeklyMaximum(inSchoolTerm);
-}
-
-/** Effektive Wochenstunden der aktuell gewählten Schulzeit. */
+/** Woechentliche Planungsgrenze: 0 h in der Schulzeit, sonst 38,5 h. */
 export function azubiWeeklyHours(cfg: AzubiConfig | undefined): number {
-  return azubiEffectiveWeeklyHours(cfg);
+  return azubiConfigOf(cfg).inSchoolTerm ? AZUBI_HOURS_IN_TERM : AZUBI_HOURS_OUT_OF_TERM;
 }
 
-/**
- * Monats-Soll in Minuten. Der Abrechnungsmonat hat immer vier Wochen, damit
- * Monate, die fünf Kalenderwochen berühren, nicht auf 112 h oder 120 h steigen.
- */
+/** Monatssoll in Minuten; Jahr und Monat bleiben Teil der stabilen Schnittstelle. */
 export function azubiMonthlyMinutes(
   cfg: AzubiConfig | undefined,
   _year: number,
   _month: number,
 ): number {
   const normalized = azubiConfigOf(cfg);
-  return Math.round(azubiWeeklyHours(normalized) * AZUBI_MONTHLY_WEEKS * 60);
+  const hours = normalized.inSchoolTerm ? 0 : azubiMonthlyHoursOutOfTerm(normalized);
+  return Math.round(hours * 60);
 }
 
-/** Soll eines Mitarbeiters – bei Azubis immer gerechnet, sonst wie eingetragen. */
+/** Soll eines Mitarbeiters - bei Azubis aus der Konfiguration, sonst eingetragen. */
 export function effectiveTargetMinutes(
   employee: Employee,
   year: number,
@@ -111,7 +95,7 @@ export function effectiveTargetMinutes(
   return azubiMonthlyMinutes(employee.azubi, year, month);
 }
 
-/** Fuegt fehlende Azubi-Vorgaben ein und synchronisiert das Monats-Soll. */
+/** Migriert Azubi-Altdaten und synchronisiert das wirksame Monatssoll. */
 export function withAutomaticAzubiTarget(
   employee: Employee,
   year: number,
@@ -121,10 +105,12 @@ export function withAutomaticAzubiTarget(
 
   const azubi = azubiConfigOf(employee.azubi);
   const targetMinutes = azubiMonthlyMinutes(azubi, year, month);
+  const oldConfig = employee.azubi;
   const configChanged =
-    !employee.azubi ||
-    employee.azubi.weeklyHoursInTerm !== azubi.weeklyHoursInTerm ||
-    employee.azubi.weeklyHoursOutOfTerm !== azubi.weeklyHoursOutOfTerm;
+    !oldConfig ||
+    oldConfig.monthlyHoursOutOfTerm !== azubi.monthlyHoursOutOfTerm ||
+    oldConfig.weeklyHoursInTerm !== undefined ||
+    oldConfig.weeklyHoursOutOfTerm !== undefined;
   if (!configChanged && employee.targetMinutes === targetMinutes) return employee;
 
   return { ...employee, azubi, targetMinutes };

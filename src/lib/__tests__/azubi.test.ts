@@ -1,73 +1,61 @@
 import { describe, expect, it } from "vitest";
-import { generateSchedule } from "../scheduler";
-import { DEFAULT_WORK_HOURS } from "../workHours";
-import { weekdayKeyOf, parseIsoDate } from "../demand";
 import {
-  AZUBI_HOURS_IN_TERM,
   AZUBI_HOURS_OUT_OF_TERM,
-  AZUBI_WORKDAYS_IN_TERM,
+  AZUBI_MONTHLY_WARNING_HOURS,
   type AzubiConfig,
   type Employee,
   type Shift,
 } from "../../types";
 import {
-  azubiConfiguredWeeklyHours,
-  azubiEffectiveWeeklyHours,
-  azubiExceedsWeeklyMaximum,
+  azubiConfigOf,
+  azubiMonthlyHoursNeedWarning,
+  azubiMonthlyHoursOutOfTerm,
   azubiMonthlyMinutes,
-  azubiWeeklyHours,
   DEFAULT_AZUBI_CONFIG,
+  DEFAULT_AZUBI_MONTHLY_HOURS_OUT_OF_TERM,
   withAutomaticAzubiTarget,
 } from "../azubi";
+import { parseIsoDate } from "../demand";
+import { generateSchedule } from "../scheduler";
 import { validateSchedule } from "../validation";
+import { DEFAULT_WORK_HOURS } from "../workHours";
 
-const azubi = (hours: number, inSchoolTerm: boolean, schoolDays: Employee["azubi"] extends
-  | { schoolDays: infer D }
-  | undefined
-  ? D
-  : never): Employee => ({
-  id: "AZ1",
-  name: "Azubi",
-  employmentType: "AZUBI",
-  targetMinutes: hours * 60,
-  azubi: { inSchoolTerm, schoolDays },
-});
-
-/** Minuten je Kalenderwoche (Montag als Schlüssel). */
-function perWeek(shifts: { date: string; paidMinutes: number }[]) {
-  const m = new Map<string, number>();
-  for (const s of shifts) {
-    const d = parseIsoDate(s.date);
-    d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
-    const k = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(
-      d.getDate(),
-    ).padStart(2, "0")}`;
-    m.set(k, (m.get(k) ?? 0) + s.paidMinutes);
-  }
-  return m;
+function employeeWithConfig(cfg: AzubiConfig, id = "AZ1"): Employee {
+  return withAutomaticAzubiTarget(
+    {
+      id,
+      name: "Azubi",
+      employmentType: "AZUBI",
+      targetMinutes: 999 * 60,
+      azubi: cfg,
+    },
+    2026,
+    8,
+  );
 }
 
-function workdaysPerWeek(shifts: { date: string }[]) {
-  const result = new Map<string, Set<string>>();
+function minutesPerWeek(shifts: Pick<Shift, "date" | "paidMinutes">[]) {
+  const result = new Map<string, number>();
   for (const shift of shifts) {
-    const date = parseIsoDate(shift.date);
-    date.setDate(date.getDate() - ((date.getDay() + 6) % 7));
-    const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(
-      date.getDate(),
-    ).padStart(2, "0")}`;
-    const workdays = result.get(key) ?? new Set<string>();
-    workdays.add(shift.date);
-    result.set(key, workdays);
+    const monday = parseIsoDate(shift.date);
+    monday.setDate(monday.getDate() - ((monday.getDay() + 6) % 7));
+    const key = monday.toISOString().slice(0, 10);
+    result.set(key, (result.get(key) ?? 0) + shift.paidMinutes);
   }
   return result;
 }
 
-function manualShift(id: string, date: string, paidMinutes: number): Shift {
+function manualShift(
+  employeeId: string,
+  id: string,
+  date: string,
+  paidMinutes: number,
+): Shift {
   const pauseMinutes = paidMinutes > 6 * 60 ? 30 : 0;
   const startMinutes = 11 * 60;
   return {
     id,
-    employeeId: "AZ-VALIDATE",
+    employeeId,
     date,
     startMinutes,
     endMinutes: startMinutes + paidMinutes + pauseMinutes,
@@ -78,381 +66,182 @@ function manualShift(id: string, date: string, paidMinutes: number): Shift {
   };
 }
 
-describe("Azubi định mức tự động", () => {
-  it("dùng định mức cố định 4 tuần, không tăng thành 112h hoặc 120h", () => {
-    expect(azubiWeeklyHours(undefined)).toBe(AZUBI_HOURS_IN_TERM);
-    for (let month = 1; month <= 12; month += 1) {
-      expect(azubiMonthlyMinutes(DEFAULT_AZUBI_CONFIG, 2026, month)).toBe(96 * 60);
-    }
-  });
+describe("Azubi trong kỳ học", () => {
+  it("có định mức 0h và không xếp ca", () => {
+    const employee = employeeWithConfig({
+      inSchoolTerm: true,
+      schoolDays: ["monday", "tuesday"],
+    });
 
-  it("không tạo định mức vượt sức chứa khi tháng kết thúc bằng 2 ngày học", () => {
-    const employee = withAutomaticAzubiTarget(
-      {
-        id: "AZ-BOUNDARY",
-        name: "Azubi Boundary",
-        employmentType: "AZUBI",
-        targetMinutes: 0,
-        azubi: DEFAULT_AZUBI_CONFIG,
-      },
-      2026,
-      6,
-    );
-
-    expect(employee.targetMinutes).toBe(96 * 60);
-    expect(() =>
+    expect(azubiMonthlyMinutes(employee.azubi, 2026, 8)).toBe(0);
+    expect(employee.targetMinutes).toBe(0);
+    expect(
       generateSchedule({
         year: 2026,
-        month: 6,
+        month: 8,
         workHours: DEFAULT_WORK_HOURS,
         employees: [employee],
         holidayState: "BW",
       }),
-    ).not.toThrow();
+    ).toEqual([]);
   });
 
-  it("ngoài kỳ học cũng dùng định mức cố định 4 tuần", () => {
-    expect(azubiMonthlyMinutes({ inSchoolTerm: false, schoolDays: [] }, 2026, 7)).toBe(
-      154 * 60,
+  it("giữ nguyên từ 0 đến 7 ngày học, không giới hạn ở 2 ngày", () => {
+    const everyDay: AzubiConfig["schoolDays"] = [
+      "monday",
+      "tuesday",
+      "wednesday",
+      "thursday",
+      "friday",
+      "saturday",
+      "sunday",
+    ];
+
+    expect(azubiConfigOf({ inSchoolTerm: true, schoolDays: [] }).schoolDays).toEqual([]);
+    expect(azubiConfigOf({ inSchoolTerm: true, schoolDays: everyDay }).schoolDays).toEqual(
+      everyDay,
     );
   });
 
-  it("cho phép chủ đặt thấp hơn mức tối đa", () => {
-    const cfg: AzubiConfig = {
+  it("validation báo lỗi nếu vẫn có ca đi làm trong kỳ học", () => {
+    const employee = employeeWithConfig({
       inSchoolTerm: true,
-      schoolDays: ["monday", "tuesday"],
-      weeklyHoursInTerm: 18,
-      weeklyHoursOutOfTerm: 30,
-    };
-
-    expect(azubiConfiguredWeeklyHours(cfg, true)).toBe(18);
-    expect(azubiEffectiveWeeklyHours(cfg, true)).toBe(18);
-    expect(azubiEffectiveWeeklyHours(cfg, false)).toBe(30);
-    expect(azubiMonthlyMinutes(cfg, 2026, 9)).toBe(72 * 60);
-  });
-
-  it("cảnh báo và giới hạn nếu chủ đặt 25h trong kỳ học", () => {
-    const cfg: AzubiConfig = {
-      inSchoolTerm: true,
-      schoolDays: ["monday", "tuesday"],
-      weeklyHoursInTerm: 25,
-      weeklyHoursOutOfTerm: 38.5,
-    };
-
-    expect(azubiExceedsWeeklyMaximum(cfg, true)).toBe(true);
-    expect(azubiConfiguredWeeklyHours(cfg, true)).toBe(25);
-    expect(azubiEffectiveWeeklyHours(cfg, true)).toBe(AZUBI_HOURS_IN_TERM);
-    expect(azubiMonthlyMinutes(cfg, 2026, 9)).toBe(96 * 60);
-  });
-
-  it("cảnh báo và giới hạn nếu chủ đặt quá 38,5h ngoài kỳ học", () => {
-    const cfg: AzubiConfig = {
-      inSchoolTerm: false,
       schoolDays: [],
-      weeklyHoursInTerm: 24,
-      weeklyHoursOutOfTerm: 40,
-    };
-
-    expect(azubiExceedsWeeklyMaximum(cfg, false)).toBe(true);
-    expect(azubiConfiguredWeeklyHours(cfg, false)).toBe(40);
-    expect(azubiEffectiveWeeklyHours(cfg, false)).toBe(AZUBI_HOURS_OUT_OF_TERM);
-    expect(azubiMonthlyMinutes(cfg, 2026, 7)).toBe(154 * 60);
-  });
-
-  it("ghi đè định mức nhập tay cũ và thêm cấu hình mặc định", () => {
-    const employee = withAutomaticAzubiTarget(
-      {
-        id: "AZ-AUTO",
-        name: "Azubi Auto",
-        employmentType: "AZUBI",
-        targetMinutes: 1,
-      },
-      2026,
-      9,
-    );
-
-    expect(employee.azubi).toEqual(DEFAULT_AZUBI_CONFIG);
-    expect(employee.targetMinutes).toBe(96 * 60);
-  });
-
-  it("scheduler đạt chính xác định mức tự động trong kỳ học", () => {
-    const employee = withAutomaticAzubiTarget(
-      {
-        id: "AZ-MONTHLY",
-        name: "Azubi Monthly",
-        employmentType: "AZUBI",
-        targetMinutes: 0,
-        azubi: { inSchoolTerm: true, schoolDays: ["monday", "tuesday"] },
-      },
-      2026,
-      9,
-    );
-    const shifts = generateSchedule({
-      year: 2026,
-      month: 9,
-      workHours: DEFAULT_WORK_HOURS,
-      employees: [employee],
-      holidayState: "BW",
     });
-
-    expect(shifts.reduce((sum, shift) => sum + shift.paidMinutes, 0)).toBe(
-      employee.targetMinutes,
+    const result = validateSchedule(
+      [employee],
+      [manualShift(employee.id, "term-shift", "2026-08-05", 4 * 60)],
     );
-    for (const [, minutes] of perWeek(shifts)) {
-      expect(minutes).toBeLessThanOrEqual(AZUBI_HOURS_IN_TERM * 60);
-    }
-    for (const [, workdays] of workdaysPerWeek(shifts)) {
-      expect(workdays.size).toBeLessThanOrEqual(AZUBI_WORKDAYS_IN_TERM);
-    }
-  });
 
-  it("scheduler chia mức thấp hơn trên 3 ngày của tuần đầy đủ", () => {
-    const employee = withAutomaticAzubiTarget(
-      {
-        id: "AZ-18",
-        name: "Azubi 18h",
-        employmentType: "AZUBI",
-        targetMinutes: 0,
-        azubi: {
-          inSchoolTerm: true,
-          schoolDays: ["monday", "tuesday"],
-          weeklyHoursInTerm: 18,
-          weeklyHoursOutOfTerm: 30,
-        },
-      },
-      2026,
-      9,
-    );
-    const shifts = generateSchedule({
-      year: 2026,
-      month: 9,
-      workHours: DEFAULT_WORK_HOURS,
-      employees: [employee],
-      holidayState: "BW",
-    });
-
-    expect(shifts.reduce((sum, shift) => sum + shift.paidMinutes, 0)).toBe(72 * 60);
-    for (const [, minutes] of perWeek(shifts)) {
-      expect(minutes).toBeLessThanOrEqual(18 * 60);
-    }
-    for (const [, workdays] of workdaysPerWeek(shifts)) {
-      expect(workdays.size).toBeLessThanOrEqual(AZUBI_WORKDAYS_IN_TERM);
-    }
-    expect(workdaysPerWeek(shifts).get("2026-09-07")?.size).toBe(AZUBI_WORKDAYS_IN_TERM);
-    expect(workdaysPerWeek(shifts).get("2026-09-14")?.size).toBe(AZUBI_WORKDAYS_IN_TERM);
-    expect(workdaysPerWeek(shifts).get("2026-09-21")?.size).toBe(AZUBI_WORKDAYS_IN_TERM);
-  });
-
-  it("giữ đúng các giới hạn Azubi trong cả 12 tháng", () => {
-    for (let month = 1; month <= 12; month += 1) {
-      for (const inSchoolTerm of [true, false]) {
-        const employee = withAutomaticAzubiTarget(
-          {
-            id: `AZ-${month}-${inSchoolTerm}`,
-            name: "Azubi cả năm",
-            employmentType: "AZUBI",
-            targetMinutes: 0,
-            azubi: {
-              inSchoolTerm,
-              schoolDays: ["monday", "tuesday"],
-              weeklyHoursInTerm: 20,
-              weeklyHoursOutOfTerm: 35,
-            },
-          },
-          2026,
-          month,
-        );
-        let shifts: Shift[];
-        try {
-          shifts = generateSchedule({
-            year: 2026,
-            month,
-            workHours: DEFAULT_WORK_HOURS,
-            employees: [employee],
-            holidayState: "BW",
-          });
-        } catch (error) {
-          throw new Error(
-            `Tháng ${month}, kỳ học=${inSchoolTerm}: ${error instanceof Error ? error.message : String(error)}`,
-          );
-        }
-
-        expect(shifts.reduce((sum, shift) => sum + shift.paidMinutes, 0)).toBe(
-          employee.targetMinutes,
-        );
-        for (const [, minutes] of perWeek(shifts)) {
-          expect(minutes).toBeLessThanOrEqual((inSchoolTerm ? 20 : 35) * 60);
-        }
-        if (inSchoolTerm) {
-          for (const shift of shifts) {
-            expect(["monday", "tuesday"]).not.toContain(
-              weekdayKeyOf(parseIsoDate(shift.date)),
-            );
-          }
-          for (const [, workdays] of workdaysPerWeek(shifts)) {
-            expect(workdays.size).toBeLessThanOrEqual(AZUBI_WORKDAYS_IN_TERM);
-          }
-        }
-      }
-    }
-  });
-});
-
-describe("Azubi trong kỳ học", () => {
-  const emp = withAutomaticAzubiTarget(
-    azubi(1, true, ["monday", "tuesday"]),
-    2026,
-    9,
-  );
-  const shifts = generateSchedule({
-    year: 2026,
-    month: 9,
-    workHours: DEFAULT_WORK_HOURS,
-    employees: [emp],
-    holidayState: "BW",
-  });
-
-  it("không xếp ca vào ngày đi học", () => {
-    for (const s of shifts) {
-      const key = weekdayKeyOf(parseIsoDate(s.date));
-      expect(["monday", "tuesday"]).not.toContain(key);
-    }
-  });
-
-  it(`không tuần nào vượt ${AZUBI_HOURS_IN_TERM}h`, () => {
-    for (const [, minutes] of perWeek(shifts)) {
-      expect(minutes).toBeLessThanOrEqual(AZUBI_HOURS_IN_TERM * 60);
-    }
-  });
-
-  it(`không tuần nào vượt ${AZUBI_WORKDAYS_IN_TERM} ngày làm`, () => {
-    for (const [, workdays] of workdaysPerWeek(shifts)) {
-      expect(workdays.size).toBeLessThanOrEqual(AZUBI_WORKDAYS_IN_TERM);
-    }
-  });
-
-  it("vẫn đạt đúng định mức tháng", () => {
-    const total = shifts.reduce((a, s) => a + s.paidMinutes, 0);
-    expect(total).toBe(emp.targetMinutes);
+    expect(result.errors.some((error) => error.message.includes("0h"))).toBe(true);
   });
 });
 
 describe("Azubi ngoài kỳ học", () => {
-  const emp = withAutomaticAzubiTarget(azubi(1, false, []), 2026, 7);
-  const shifts = generateSchedule({
-    year: 2026,
-    month: 7,
-    workHours: DEFAULT_WORK_HOURS,
-    employees: [emp],
-    holidayState: "BW",
+  it("cho chủ đặt trực tiếp giờ theo tháng và không cắt ở 172h", () => {
+    const below: AzubiConfig = {
+      inSchoolTerm: false,
+      schoolDays: [],
+      monthlyHoursOutOfTerm: 171.5,
+    };
+    const warning: AzubiConfig = {
+      ...below,
+      monthlyHoursOutOfTerm: AZUBI_MONTHLY_WARNING_HOURS,
+    };
+
+    expect(azubiMonthlyHoursOutOfTerm(below)).toBe(171.5);
+    expect(azubiMonthlyHoursNeedWarning(below)).toBe(false);
+    expect(azubiMonthlyHoursNeedWarning(warning)).toBe(true);
+    expect(azubiMonthlyMinutes(warning, 2026, 8)).toBe(
+      AZUBI_MONTHLY_WARNING_HOURS * 60,
+    );
   });
 
-  it("được xếp cả tuần, không có ngày học", () => {
-    const days = new Set(shifts.map((s) => weekdayKeyOf(parseIsoDate(s.date))));
-    expect(days.size).toBeGreaterThan(2);
+  it("migrate 38,5h/tuần cũ thành 154h/tháng", () => {
+    const migrated = azubiConfigOf({
+      inSchoolTerm: false,
+      schoolDays: ["monday"],
+      weeklyHoursInTerm: 24,
+      weeklyHoursOutOfTerm: 38.5,
+    });
+
+    expect(migrated).toEqual({
+      inSchoolTerm: false,
+      schoolDays: ["monday"],
+      monthlyHoursOutOfTerm: DEFAULT_AZUBI_MONTHLY_HOURS_OUT_OF_TERM,
+    });
   });
 
-  it(`không tuần nào vượt ${AZUBI_HOURS_OUT_OF_TERM}h`, () => {
-    for (const [, minutes] of perWeek(shifts)) {
+  it("mặc định ngoài kỳ là 154h/tháng", () => {
+    const employee = employeeWithConfig({
+      ...DEFAULT_AZUBI_CONFIG,
+      inSchoolTerm: false,
+    });
+
+    expect(employee.targetMinutes).toBe(DEFAULT_AZUBI_MONTHLY_HOURS_OUT_OF_TERM * 60);
+  });
+
+  it("scheduler đạt đúng mức tháng do chủ đặt và giữ trần 38,5h/tuần", () => {
+    const employee = employeeWithConfig({
+      inSchoolTerm: false,
+      schoolDays: [],
+      monthlyHoursOutOfTerm: 120,
+    });
+    const shifts = generateSchedule({
+      year: 2026,
+      month: 8,
+      workHours: DEFAULT_WORK_HOURS,
+      employees: [employee],
+      holidayState: "BW",
+    });
+
+    expect(shifts.reduce((sum, shift) => sum + shift.paidMinutes, 0)).toBe(120 * 60);
+    for (const minutes of minutesPerWeek(shifts).values()) {
       expect(minutes).toBeLessThanOrEqual(AZUBI_HOURS_OUT_OF_TERM * 60);
     }
   });
 
-  it("đạt đúng định mức tháng", () => {
-    expect(shifts.reduce((a, s) => a + s.paidMinutes, 0)).toBe(emp.targetMinutes);
-  });
-
-  it("chia lịch theo mức thấp hơn do chủ đặt", () => {
-    const configured = withAutomaticAzubiTarget(
-      {
-        id: "AZ-30",
-        name: "Azubi 30h",
-        employmentType: "AZUBI",
-        targetMinutes: 0,
-        azubi: {
-          inSchoolTerm: false,
-          schoolDays: [],
-          weeklyHoursInTerm: 20,
-          weeklyHoursOutOfTerm: 30,
+  it("scheduler giữ đúng cấu hình trong cả 12 tháng", () => {
+    for (let month = 1; month <= 12; month += 1) {
+      const employee = withAutomaticAzubiTarget(
+        {
+          id: `AZ-${month}`,
+          name: "Azubi cả năm",
+          employmentType: "AZUBI",
+          targetMinutes: 0,
+          azubi: {
+            inSchoolTerm: false,
+            schoolDays: [],
+            monthlyHoursOutOfTerm: 140,
+          },
         },
-      },
-      2026,
-      7,
-    );
-    const configuredShifts = generateSchedule({
-      year: 2026,
-      month: 7,
-      workHours: DEFAULT_WORK_HOURS,
-      employees: [configured],
-      holidayState: "BW",
-    });
+        2026,
+        month,
+      );
+      const shifts = generateSchedule({
+        year: 2026,
+        month,
+        workHours: DEFAULT_WORK_HOURS,
+        employees: [employee],
+        holidayState: "BW",
+      });
 
-    expect(configured.targetMinutes).toBe(120 * 60);
-    expect(configuredShifts.reduce((a, s) => a + s.paidMinutes, 0)).toBe(
-      configured.targetMinutes,
-    );
-    for (const [, minutes] of perWeek(configuredShifts)) {
-      expect(minutes).toBeLessThanOrEqual(30 * 60);
+      expect(shifts.reduce((sum, shift) => sum + shift.paidMinutes, 0)).toBe(140 * 60);
+      for (const minutes of minutesPerWeek(shifts).values()) {
+        expect(minutes).toBeLessThanOrEqual(AZUBI_HOURS_OUT_OF_TERM * 60);
+      }
     }
   });
-});
 
-describe("kiểm tra lịch Azubi chỉnh tay", () => {
-  const baseEmployee: Employee = {
-    id: "AZ-VALIDATE",
-    name: "Azubi Validate",
-    employmentType: "AZUBI",
-    targetMinutes: 0,
-    azubi: {
-      inSchoolTerm: true,
-      schoolDays: ["monday", "tuesday"],
-      weeklyHoursInTerm: 24,
-      weeklyHoursOutOfTerm: 38.5,
-    },
-  };
-
-  it("báo lỗi nếu có ca vào ngày học", () => {
-    const shifts = [manualShift("school", "2026-09-07", 4 * 60)];
+  it("validation báo lỗi nếu một tuần vượt 38,5h", () => {
+    const employee = employeeWithConfig({
+      inSchoolTerm: false,
+      schoolDays: [],
+      monthlyHoursOutOfTerm: 39,
+    });
     const result = validateSchedule(
-      [{ ...baseEmployee, targetMinutes: 4 * 60 }],
-      shifts,
+      [employee],
+      [
+        manualShift(employee.id, "week-1", "2026-08-03", 10 * 60),
+        manualShift(employee.id, "week-2", "2026-08-04", 10 * 60),
+        manualShift(employee.id, "week-3", "2026-08-05", 10 * 60),
+        manualShift(employee.id, "week-4", "2026-08-06", 9 * 60),
+      ],
     );
 
-    expect(result.errors.some((error) => error.message.includes("ngày đi học"))).toBe(true);
-  });
-
-  it("báo lỗi nếu vượt 24h hoặc quá 3 ngày làm trong một tuần", () => {
-    const tooManyHours = [
-      manualShift("hours-1", "2026-09-09", 8.5 * 60),
-      manualShift("hours-2", "2026-09-10", 8.5 * 60),
-      manualShift("hours-3", "2026-09-11", 8.5 * 60),
-    ];
-    const hoursResult = validateSchedule(
-      [{ ...baseEmployee, targetMinutes: 25.5 * 60 }],
-      tooManyHours,
-    );
-    expect(hoursResult.errors.some((error) => error.message.includes("vượt mức 24h"))).toBe(
-      true,
-    );
-
-    const tooManyDays = [
-      manualShift("days-1", "2026-09-09", 4 * 60),
-      manualShift("days-2", "2026-09-10", 4 * 60),
-      manualShift("days-3", "2026-09-11", 4 * 60),
-      manualShift("days-4", "2026-09-12", 4 * 60),
-    ];
-    const daysResult = validateSchedule(
-      [{ ...baseEmployee, targetMinutes: 16 * 60 }],
-      tooManyDays,
-    );
-    expect(daysResult.errors.some((error) => error.message.includes("tối đa 3 ngày"))).toBe(
-      true,
-    );
+    expect(result.errors.some((error) => error.message.includes("38.5h"))).toBe(true);
   });
 });
 
-it("thứ tự đầu vào giữa Teilzeit và Azubi không làm lịch thay đổi", () => {
-  const apprentice = azubi(40, true, ["monday", "tuesday"]);
+it("thứ tự Teilzeit và Azubi không làm lịch thay đổi", () => {
+  const apprentice = employeeWithConfig(
+    {
+      inSchoolTerm: false,
+      schoolDays: [],
+      monthlyHoursOutOfTerm: 40,
+    },
+    "AZ-ORDER",
+  );
   const partTime: Employee = {
     id: "TZ1",
     name: "Teilzeit",
@@ -461,7 +250,7 @@ it("thứ tự đầu vào giữa Teilzeit và Azubi không làm lịch thay đ�
   };
   const common = {
     year: 2026,
-    month: 9,
+    month: 8,
     workHours: DEFAULT_WORK_HOURS,
     holidayState: "BW" as const,
     seed: "azubi-order",

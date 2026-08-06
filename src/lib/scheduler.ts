@@ -16,7 +16,7 @@
 //  - Token-Dauer wird nie verändert  => monatliches Soll bleibt exakt
 // ============================================================================
 
-import { AZUBI_WORKDAYS_IN_TERM, type Employee, type Shift } from "../types";
+import type { Employee, Shift } from "../types";
 import { azubiConfigOf, azubiWeeklyHours } from "./azubi";
 import {
   DAY_WEIGHTS,
@@ -110,31 +110,6 @@ function weekKeyOf(isoDate: string): string {
 function weeklyCapMinutes(employee: Employee): number | null {
   if (employee.employmentType !== "AZUBI") return null;
   return Math.round(azubiWeeklyHours(employee.azubi) * 60);
-}
-
-/** In der Schulzeit: 2 Schultage + 2 freie Tage = maximal 3 Arbeitstage. */
-function weeklyWorkdayCap(employee: Employee): number | null {
-  if (employee.employmentType !== "AZUBI") return null;
-  return azubiConfigOf(employee.azubi).inSchoolTerm ? AZUBI_WORKDAYS_IN_TERM : null;
-}
-
-/**
- * In der Schulzeit werden die eingestellten Wochenstunden auf die drei
- * Arbeitstage verteilt. Auf halbe Stunden aufrunden, damit z.B. 20 h als
- * 7 + 6,5 + 6,5 h planbar bleiben.
- */
-function dailyAzubiCapMinutes(employee: Employee): number | null {
-  if (employee.employmentType !== "AZUBI") return null;
-  if (!azubiConfigOf(employee.azubi).inSchoolTerm) return null;
-  return Math.ceil((azubiWeeklyHours(employee.azubi) * 2) / AZUBI_WORKDAYS_IN_TERM) * 30;
-}
-
-function workedDaysInWeek(worked: Set<string>, weekKey: string): number {
-  let count = 0;
-  for (const date of worked) {
-    if (weekKeyOf(date) === weekKey) count += 1;
-  }
-  return count;
 }
 
 /** Berufsschultag: an dem Wochentag wird der Azubi nicht eingeteilt. */
@@ -396,15 +371,12 @@ function placeOneShift(state: SchedulerState, employee: Employee): boolean {
   const worked = state.worked.get(employee.id)!;
   const weekendCount = state.weekendCount.get(employee.id) ?? 0;
   const weekCap = weeklyCapMinutes(employee);
-  const workdayCap = weeklyWorkdayCap(employee);
-  const dailyAzubiCap = dailyAzubiCapMinutes(employee);
   const weekUsed = state.weekMinutes.get(employee.id)!;
 
   // Erst zählen, wie viele Tage überhaupt noch in Frage kommen. Daraus ergibt
   // sich das nötige Tempo (Stunden je verbleibendem Tag) – ohne das würde die
   // zufällige Längenwahl das Monats-Soll reißen.
   let daysLeft = 0;
-  const candidateDaysByWeek = new Map<string, number>();
   for (const isoDate of state.dates) {
     if (worked.has(isoDate)) continue;
     const day = state.dayOf(isoDate);
@@ -414,17 +386,7 @@ function placeOneShift(state: SchedulerState, employee: Employee): boolean {
     if (consecutiveRunLengthWith(worked, isoDate) > 6) continue;
     const weekKey = weekKeyOf(isoDate);
     if (weekCap !== null && (weekUsed.get(weekKey) ?? 0) >= weekCap) continue;
-    if (workdayCap === null) {
-      daysLeft += 1;
-    } else {
-      candidateDaysByWeek.set(weekKey, (candidateDaysByWeek.get(weekKey) ?? 0) + 1);
-    }
-  }
-  if (workdayCap !== null) {
-    for (const [weekKey, candidates] of candidateDaysByWeek) {
-      const freeWorkdays = Math.max(0, workdayCap - workedDaysInWeek(worked, weekKey));
-      daysLeft += Math.min(candidates, freeWorkdays);
-    }
+    daysLeft += 1;
   }
   // daysLeft ist eine Obergrenze: greedy belegt nie wirklich JEDEN erlaubten
   // Tag, weil die 6-Tage-Regel Lücken erzwingt. Ohne Sicherheitsabschlag wählt
@@ -442,13 +404,9 @@ function placeOneShift(state: SchedulerState, employee: Employee): boolean {
     if (day.closed) continue; // Betriebsruhe -> kein Dienst
     if (isSchoolDay(employee, isoDate)) continue; // Azubi: Berufsschule
     const weekKey = weekKeyOf(isoDate);
-    if (workdayCap !== null && workedDaysInWeek(worked, weekKey) >= workdayCap) {
-      continue;
-    }
 
     // Azubi-Wochendecke: was in dieser Woche noch frei ist.
     let dayCapMinutes = maxPaidForDay(day);
-    if (dailyAzubiCap !== null) dayCapMinutes = Math.min(dayCapMinutes, dailyAzubiCap);
     if (weekCap !== null) {
       const free = weekCap - (weekUsed.get(weekKey) ?? 0);
       if (free <= 0) continue; // Woche ist voll
@@ -554,18 +512,9 @@ function repairDemand(state: SchedulerState, employeesById: Map<string, Employee
         const day = state.dayOf(to);
         if (day.closed || maxPaidForDay(day) < shift.paidMinutes) continue; // passt nicht
         if (isSchoolDay(employee, to)) continue; // Azubi: Berufsschule
-        const dailyAzubiCap = dailyAzubiCapMinutes(employee);
-        if (dailyAzubiCap !== null && shift.paidMinutes > dailyAzubiCap) continue;
         // Regeln prüfen, als ob die alte Schicht bereits entfernt wäre.
         const trial = new Set(worked);
         trial.delete(from);
-        const workdayCap = weeklyWorkdayCap(employee);
-        if (
-          workdayCap !== null &&
-          workedDaysInWeek(trial, weekKeyOf(to)) >= workdayCap
-        ) {
-          continue;
-        }
         const weekCap = weeklyCapMinutes(employee);
         if (weekCap !== null) {
           const weekMinutes = state.weekMinutes.get(employee.id)!;

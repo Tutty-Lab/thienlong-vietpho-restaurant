@@ -18,27 +18,26 @@ export type WeekdayName =
   | "saturday"
   | "sunday";
 
-/**
- * Auszubildende. In der Berufsschulzeit gilt eine kleinere Wochenstundenzahl
- * und an den Schultagen wird gar nicht eingeteilt; außerhalb der Schulzeit
- * arbeitet der Azubi die volle Woche.
- */
+/** Einstellungen fuer Auszubildende innerhalb und ausserhalb der Schulzeit. */
 export type AzubiConfig = {
-  /** true = Berufsschule läuft gerade. */
+  /** true = Berufsschule laeuft; in diesem Zustand gilt ein Soll von 0 h. */
   inSchoolTerm: boolean;
-  /** Wochentage in der Schule – an diesen Tagen keine Schicht. */
+  /** Frei waehlbare Schultage (0 bis 7 Tage). */
   schoolDays: WeekdayName[];
-  /** Gewünschte Wochenstunden in der Schulzeit (gesetzliche Decke: 24 h). */
+  /** Vom Chef gesetztes Monatssoll ausserhalb der Schulzeit. */
+  monthlyHoursOutOfTerm?: number;
+  /** @deprecated Altdaten; werden beim Laden migriert. */
   weeklyHoursInTerm?: number;
-  /** Gewünschte Wochenstunden außerhalb der Schulzeit (Decke: 38,5 h). */
+  /** @deprecated Altdaten; werden beim Laden auf Monatsstunden umgerechnet. */
   weeklyHoursOutOfTerm?: number;
 };
 
-/** Wirksame Obergrenzen je Azubi-Situation. */
-export const AZUBI_HOURS_IN_TERM = 24;
+/** In der Schulzeit wird der Azubi nicht zur Arbeit eingeteilt. */
+export const AZUBI_HOURS_IN_TERM = 0;
+/** Woechentliche Planungsgrenze ausserhalb der Schulzeit. */
 export const AZUBI_HOURS_OUT_OF_TERM = 38.5;
-/** 2 Schultage + 2 freie Tage lassen 3 Arbeitstage pro Woche. */
-export const AZUBI_WORKDAYS_IN_TERM = 3;
+/** Ab diesem Monatssoll wird gewarnt, die Eingabe bleibt aber wirksam. */
+export const AZUBI_MONTHLY_WARNING_HOURS = 172;
 
 export type ShiftType = "EARLY" | "LATE" | "CUSTOM";
 

@@ -1,20 +1,15 @@
 import type { UseScheduleReturn } from "../hooks/useSchedule";
+import { WEEKDAY_LABELS_VI } from "../lib/demand";
 import {
-  AZUBI_HOURS_IN_TERM,
-  AZUBI_HOURS_OUT_OF_TERM,
-  AZUBI_WORKDAYS_IN_TERM,
+  azubiConfigOf,
+  azubiMonthlyHoursNeedWarning,
+  azubiMonthlyHoursOutOfTerm,
+} from "../lib/azubi";
+import {
+  AZUBI_MONTHLY_WARNING_HOURS,
   type AzubiConfig,
   type WeekdayName,
 } from "../types";
-import { WEEKDAY_LABELS_VI } from "../lib/demand";
-import {
-  AZUBI_MONTHLY_WEEKS,
-  azubiConfigOf,
-  azubiConfiguredWeeklyHours,
-  azubiEffectiveWeeklyHours,
-  azubiExceedsWeeklyMaximum,
-  azubiWeeklyHours,
-} from "../lib/azubi";
 
 const WEEKDAYS: WeekdayName[] = [
   "monday",
@@ -26,12 +21,9 @@ const WEEKDAYS: WeekdayName[] = [
   "sunday",
 ];
 
-/** Wie viele Schultage der Chef vorgibt, wenn die Berufsschule läuft. */
-const SCHOOL_DAYS_EXPECTED = 2;
-
 export function AzubiTab({ store }: { store: UseScheduleReturn }) {
   const { schedule, updateEmployee } = store;
-  const azubis = schedule.employees.filter((e) => e.employmentType === "AZUBI");
+  const azubis = schedule.employees.filter((employee) => employee.employmentType === "AZUBI");
 
   if (azubis.length === 0) {
     return (
@@ -50,178 +42,126 @@ export function AzubiTab({ store }: { store: UseScheduleReturn }) {
       <section className="rounded-lg bg-white border border-slate-200 p-4 sm:p-5 shadow-sm">
         <h2 className="text-base font-semibold text-slate-900">Azubi — kỳ học nghề</h2>
         <p className="mt-1 text-xs text-slate-500">
-          Trong kỳ học: chủ chọn <b>{SCHOOL_DAYS_EXPECTED} ngày đi học</b>, hệ thống
-          chia giờ làm trên <b>{AZUBI_WORKDAYS_IN_TERM} ngày/tuần</b> để còn 2 ngày nghỉ. Giờ làm do chủ
-          đặt nhưng không vượt <b>{AZUBI_HOURS_IN_TERM}h/tuần</b>. Ngoài kỳ học:
-          không có ngày học, mức tối đa là <b>{AZUBI_HOURS_OUT_OF_TERM}h/tuần</b>.
-          Định mức tháng luôn tính cố định <b>{AZUBI_MONTHLY_WEEKS} tuần</b>: tối đa
-          <b> {AZUBI_HOURS_IN_TERM * AZUBI_MONTHLY_WEEKS}h</b> trong kỳ và
-          <b> {AZUBI_HOURS_OUT_OF_TERM * AZUBI_MONTHLY_WEEKS}h</b> ngoài kỳ.
+          Trong kỳ học, định mức đi làm là <b>0h</b> và hệ thống không xếp ca. Chủ có thể chọn tùy ý
+          từ <b>0 đến 7 ngày học</b>. Ngoài kỳ học, chủ nhập trực tiếp định mức theo tháng; từ
+          <b> {AZUBI_MONTHLY_WARNING_HOURS}h/tháng</b> trở lên chỉ hiện cảnh báo, không khóa và không
+          tự giảm số giờ.
         </p>
       </section>
 
-      {azubis.map((emp) => {
-        const cfg: AzubiConfig = azubiConfigOf(emp.azubi);
-        const weekly = azubiWeeklyHours(cfg);
-        const termHours = azubiConfiguredWeeklyHours(cfg, true);
-        const outOfTermHours = azubiConfiguredWeeklyHours(cfg, false);
-        const termExceeded = azubiExceedsWeeklyMaximum(cfg, true);
-        const outOfTermExceeded = azubiExceedsWeeklyMaximum(cfg, false);
-        const termInputId = `azubi-${emp.id}-term-hours`;
-        const outOfTermInputId = `azubi-${emp.id}-out-hours`;
+      {azubis.map((employee) => {
+        const cfg: AzubiConfig = azubiConfigOf(employee.azubi);
+        const monthlyHours = azubiMonthlyHoursOutOfTerm(cfg);
+        const needsWarning = !cfg.inSchoolTerm && azubiMonthlyHoursNeedWarning(cfg);
+        const monthlyInputId = `azubi-${employee.id}-monthly-hours`;
+        const warningId = `${monthlyInputId}-warning`;
 
         const setCfg = (next: Partial<AzubiConfig>) =>
-          updateEmployee(emp.id, { azubi: { ...cfg, ...next } });
+          updateEmployee(employee.id, { azubi: { ...cfg, ...next } });
 
-        const toggleDay = (d: WeekdayName) =>
+        const toggleDay = (day: WeekdayName) =>
           setCfg({
-            schoolDays: cfg.schoolDays.includes(d)
-              ? cfg.schoolDays.filter((x) => x !== d)
-              : cfg.schoolDays.length < SCHOOL_DAYS_EXPECTED
-                ? [...cfg.schoolDays, d]
-                : cfg.schoolDays,
+            schoolDays: cfg.schoolDays.includes(day)
+              ? cfg.schoolDays.filter((current) => current !== day)
+              : [...cfg.schoolDays, day],
           });
 
         return (
           <section
-            key={emp.id}
+            key={employee.id}
             className="rounded-lg bg-white border border-slate-200 p-4 sm:p-5 shadow-sm"
           >
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <h3 className="font-semibold text-slate-900">{emp.name}</h3>
+              <h3 className="font-semibold text-slate-900">{employee.name}</h3>
               <span className="text-sm text-slate-500">
-                <b className="text-slate-900">{emp.targetMinutes / 60}h/tháng</b>
-                {" · "}{weekly}h/tuần
+                <b className="text-slate-900">{employee.targetMinutes / 60}h/tháng</b>
+                {cfg.inSchoolTerm ? " · kỳ học" : " · chủ đặt"}
               </span>
-            </div>
-
-            <div className="mt-3 grid gap-3 sm:grid-cols-2">
-              <div className="rounded border border-slate-200 bg-slate-50 p-3">
-                <label
-                  htmlFor={termInputId}
-                  className="block text-xs font-medium text-slate-700"
-                >
-                  Giờ/tuần trong kỳ học
-                </label>
-                <div className="mt-1 flex items-center gap-2">
-                  <input
-                    id={termInputId}
-                    type="number"
-                    min={0}
-                    step={0.5}
-                    value={termHours}
-                    aria-invalid={termExceeded}
-                    onChange={(e) =>
-                      setCfg({ weeklyHoursInTerm: Math.max(0, Number(e.target.value)) })
-                    }
-                    className={`w-28 rounded border px-2 py-1.5 text-sm focus:outline-none focus:ring-1 ${
-                      termExceeded
-                        ? "border-amber-400 focus:border-amber-500 focus:ring-amber-500"
-                        : "border-slate-300 focus:border-slate-500 focus:ring-slate-500"
-                    }`}
-                  />
-                  <span className="text-xs text-slate-500">tối đa {AZUBI_HOURS_IN_TERM}h</span>
-                </div>
-                {termExceeded && (
-                  <p className="mt-2 text-xs font-medium text-amber-700" role="alert">
-                    ⚠ Đã nhập {termHours}h, vượt mức tối đa {AZUBI_HOURS_IN_TERM}h.
-                    Hệ thống chỉ dùng {azubiEffectiveWeeklyHours(cfg, true)}h/tuần để
-                    tính và xếp lịch.
-                  </p>
-                )}
-              </div>
-
-              <div className="rounded border border-slate-200 bg-slate-50 p-3">
-                <label
-                  htmlFor={outOfTermInputId}
-                  className="block text-xs font-medium text-slate-700"
-                >
-                  Giờ/tuần ngoài kỳ học
-                </label>
-                <div className="mt-1 flex items-center gap-2">
-                  <input
-                    id={outOfTermInputId}
-                    type="number"
-                    min={0}
-                    step={0.5}
-                    value={outOfTermHours}
-                    aria-invalid={outOfTermExceeded}
-                    onChange={(e) =>
-                      setCfg({ weeklyHoursOutOfTerm: Math.max(0, Number(e.target.value)) })
-                    }
-                    className={`w-28 rounded border px-2 py-1.5 text-sm focus:outline-none focus:ring-1 ${
-                      outOfTermExceeded
-                        ? "border-amber-400 focus:border-amber-500 focus:ring-amber-500"
-                        : "border-slate-300 focus:border-slate-500 focus:ring-slate-500"
-                    }`}
-                  />
-                  <span className="text-xs text-slate-500">
-                    tối đa {AZUBI_HOURS_OUT_OF_TERM}h
-                  </span>
-                </div>
-                {outOfTermExceeded && (
-                  <p className="mt-2 text-xs font-medium text-amber-700" role="alert">
-                    ⚠ Đã nhập {outOfTermHours}h, vượt mức tối đa {AZUBI_HOURS_OUT_OF_TERM}h.
-                    Hệ thống chỉ dùng {azubiEffectiveWeeklyHours(cfg, false)}h/tuần để
-                    tính và xếp lịch.
-                  </p>
-                )}
-              </div>
             </div>
 
             <label className="mt-3 flex items-center gap-2 cursor-pointer select-none">
               <input
                 type="checkbox"
                 checked={cfg.inSchoolTerm}
-                onChange={(e) => setCfg({ inSchoolTerm: e.target.checked })}
+                onChange={(event) => setCfg({ inSchoolTerm: event.target.checked })}
                 className="h-5 w-5 rounded border-slate-300 text-slate-900 focus:ring-slate-500"
               />
               <span className="text-sm text-slate-700">
                 Đang trong kỳ học nghề
-                <span className="text-slate-400">
-                  {" "}
-                  — bỏ tích nếu nghỉ hè / hết kỳ
-                </span>
+                <span className="text-slate-400"> — bỏ tích nếu nghỉ hè / hết kỳ</span>
               </span>
             </label>
+
+            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+              <div className="rounded border border-emerald-200 bg-emerald-50 p-3">
+                <div className="text-xs font-medium text-emerald-800">Trong kỳ học</div>
+                <div className="mt-1 text-lg font-semibold text-emerald-900">0h/tháng</div>
+                <p className="mt-1 text-xs text-emerald-700">Không tạo ca đi làm.</p>
+              </div>
+
+              <div
+                className={`rounded border p-3 ${
+                  needsWarning ? "border-amber-300 bg-amber-50" : "border-slate-200 bg-slate-50"
+                }`}
+              >
+                <label htmlFor={monthlyInputId} className="block text-xs font-medium text-slate-700">
+                  Giờ/tháng ngoài kỳ học
+                </label>
+                <div className="mt-1 flex items-center gap-2">
+                  <input
+                    id={monthlyInputId}
+                    type="number"
+                    min={0}
+                    step={0.5}
+                    value={monthlyHours}
+                    aria-describedby={needsWarning ? warningId : undefined}
+                    onChange={(event) =>
+                      setCfg({ monthlyHoursOutOfTerm: Math.max(0, Number(event.target.value)) })
+                    }
+                    className={`w-28 rounded border px-2 py-1.5 text-sm focus:outline-none focus:ring-1 ${
+                      needsWarning
+                        ? "border-amber-400 focus:border-amber-500 focus:ring-amber-500"
+                        : "border-slate-300 focus:border-slate-500 focus:ring-slate-500"
+                    }`}
+                  />
+                  <span className="text-xs text-slate-500">h/tháng</span>
+                </div>
+                {needsWarning && (
+                  <p id={warningId} className="mt-2 text-xs font-medium text-amber-800" role="alert">
+                    ⚠ Từ {AZUBI_MONTHLY_WARNING_HOURS}h/tháng: lịch có thể khó xếp. Hệ thống vẫn giữ
+                    nguyên {monthlyHours}h do chủ nhập.
+                  </p>
+                )}
+              </div>
+            </div>
 
             {cfg.inSchoolTerm && (
               <div className="mt-3">
                 <div className="text-xs text-slate-600 mb-1.5">
-                  Ngày đi học (không xếp ca những ngày này):
+                  Ngày đi học — chọn tùy ý ({cfg.schoolDays.length}/7):
                 </div>
                 <div className="flex flex-wrap gap-1.5">
-                  {WEEKDAYS.map((d) => {
-                    const on = cfg.schoolDays.includes(d);
-                    const disabled = !on && cfg.schoolDays.length >= SCHOOL_DAYS_EXPECTED;
+                  {WEEKDAYS.map((day) => {
+                    const selected = cfg.schoolDays.includes(day);
                     return (
                       <button
-                        key={d}
+                        key={day}
                         type="button"
-                        aria-pressed={on}
-                        disabled={disabled}
-                        onClick={() => toggleDay(d)}
-                        className={`px-3 py-1.5 rounded-full border text-sm disabled:cursor-not-allowed disabled:opacity-40 ${
-                          on
+                        aria-pressed={selected}
+                        onClick={() => toggleDay(day)}
+                        className={`px-3 py-1.5 rounded-full border text-sm ${
+                          selected
                             ? "bg-slate-900 text-white border-slate-900"
                             : "bg-white text-slate-600 border-slate-200 hover:border-slate-400"
                         }`}
                       >
-                        {WEEKDAY_LABELS_VI[d]}
+                        {WEEKDAY_LABELS_VI[day]}
                       </button>
                     );
                   })}
                 </div>
-
-                {cfg.schoolDays.length !== SCHOOL_DAYS_EXPECTED && (
-                  <p className="mt-2 text-xs text-amber-600">
-                    ⚠ Đang chọn {cfg.schoolDays.length} ngày học, quy định là{" "}
-                    {SCHOOL_DAYS_EXPECTED} ngày.
-                  </p>
-                )}
                 <p className="mt-2 text-xs text-slate-500">
-                  Ngoài 2 ngày học, hệ thống chia số giờ đã đặt trên {AZUBI_WORKDAYS_IN_TERM} ngày làm;
-                  2 ngày còn lại sẽ nghỉ.
+                  Số ngày học không ảnh hưởng định mức: trong kỳ luôn là 0h đi làm.
                 </p>
               </div>
             )}
