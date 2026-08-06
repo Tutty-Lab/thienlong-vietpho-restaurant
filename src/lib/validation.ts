@@ -2,10 +2,9 @@
 // Validierung des Dienstplans gegen alle geforderten Regeln.
 // ============================================================================
 
-import type { Employee, Shift } from "../types";
+import { AZUBI_HOURS_OUT_OF_TERM, type Employee, type Shift } from "../types";
 import { calculatePause } from "./time";
 import { maxConsecutiveRun } from "./consecutive";
-import { azubiConfigOf, azubiWeeklyHours } from "./azubi";
 import { parseIsoDate } from "./demand";
 
 export type ValidationError = {
@@ -114,29 +113,19 @@ export function validateSchedule(
     const maxRun = maxConsecutiveRun(empShifts.map((s) => s.date));
 
     if (emp.employmentType === "AZUBI") {
-      const cfg = azubiConfigOf(emp.azubi);
-      const weeklyCapMinutes = Math.round(azubiWeeklyHours(cfg) * 60);
+      const weeklyCapMinutes = Math.round(AZUBI_HOURS_OUT_OF_TERM * 60);
       const minutesByWeek = new Map<string, number>();
 
-      if (cfg.inSchoolTerm) {
-        if (empShifts.length > 0) {
+      for (const shift of empShifts) {
+        const weekKey = weekKeyOf(shift.date);
+        minutesByWeek.set(weekKey, (minutesByWeek.get(weekKey) ?? 0) + shift.paidMinutes);
+      }
+      for (const [weekKey, minutes] of minutesByWeek) {
+        if (minutes > weeklyCapMinutes) {
           errors.push({
             employeeId: emp.id,
-            message: `${emp.name}: trong kỳ học có định mức 0h, không được xếp ca đi làm.`,
+            message: `${emp.name}: tuần ${weekKey} có ${minutes / 60}h, vượt mức ${weeklyCapMinutes / 60}h.`,
           });
-        }
-      } else {
-        for (const shift of empShifts) {
-          const weekKey = weekKeyOf(shift.date);
-          minutesByWeek.set(weekKey, (minutesByWeek.get(weekKey) ?? 0) + shift.paidMinutes);
-        }
-        for (const [weekKey, minutes] of minutesByWeek) {
-          if (minutes > weeklyCapMinutes) {
-            errors.push({
-              employeeId: emp.id,
-              message: `${emp.name}: tuần ${weekKey} có ${minutes / 60}h, vượt mức ${weeklyCapMinutes / 60}h.`,
-            });
-          }
         }
       }
     }

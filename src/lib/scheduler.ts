@@ -16,8 +16,7 @@
 //  - Token-Dauer wird nie verändert  => monatliches Soll bleibt exakt
 // ============================================================================
 
-import type { Employee, Shift } from "../types";
-import { azubiConfigOf, azubiWeeklyHours } from "./azubi";
+import { AZUBI_HOURS_OUT_OF_TERM, type Employee, type Shift } from "../types";
 import {
   DAY_WEIGHTS,
   LATE_SHIFT_RATIOS,
@@ -109,15 +108,7 @@ function weekKeyOf(isoDate: string): string {
 /** Wochendecke in Minuten – nur Azubis haben eine. */
 function weeklyCapMinutes(employee: Employee): number | null {
   if (employee.employmentType !== "AZUBI") return null;
-  return Math.round(azubiWeeklyHours(employee.azubi) * 60);
-}
-
-/** Berufsschultag: an dem Wochentag wird der Azubi nicht eingeteilt. */
-function isSchoolDay(employee: Employee, isoDate: string): boolean {
-  if (employee.employmentType !== "AZUBI") return false;
-  const cfg = azubiConfigOf(employee.azubi);
-  if (!cfg.inSchoolTerm) return false;
-  return cfg.schoolDays.includes(weekdayKeyOf(parseIsoDate(isoDate)));
+  return Math.round(AZUBI_HOURS_OUT_OF_TERM * 60);
 }
 
 // Halbe Stunden sind erlaubt, seit die gerechnete Pause weg ist: der
@@ -130,18 +121,13 @@ export const MAX_DAILY_MINUTES = 10 * 60;
 const SHIFT_HOURS_DESC = [10, 9.5, 9, 8.5, 8, 7.5, 7, 6.5, 6, 5.5, 5, 4.5, 4, 3.5, 3] as const;
 
 /**
- * Erlaubte Schichtlängen je Anstellungsart. Azubi unterstützt auch kurze
- * halbe Stunden, damit kleinere Wochenvorgaben auf drei Tage teilbar bleiben.
+ * Erlaubte Schichtlängen je Anstellungsart. Reguläre Azubi-Schichten starten
+ * bei 3 h; nur ein gesamtes Monatssoll unter 3 h bleibt als kurze Einzelca.
  */
 const ALLOWED_HOURS: Record<Employee["employmentType"], readonly number[]> = {
   VOLLZEIT: [6, 6.5, 7, 7.5, 8, 8.5, 9, 9.5, 10],
   TEILZEIT: [3, 3.5, 4, 4.5, 5, 5.5, 6, 6.5, 7, 7.5, 8, 8.5, 9, 9.5, 10],
-  // Azubi: auch kurze halbe Stunden, damit jede kleinere Wochenvorgabe exakt
-  // auf drei Arbeitstage verteilt werden kann.
-  AZUBI: [
-    0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5, 5.5, 6, 6.5, 7, 7.5, 8, 8.5,
-    9, 9.5, 10,
-  ],
+  AZUBI: [3, 3.5, 4, 4.5, 5, 5.5, 6, 6.5, 7, 7.5, 8, 8.5, 9, 9.5, 10],
 };
 
 /** Alle überhaupt zulässigen Längen – Rückfall, wenn das Fenster eng ist. */
@@ -208,6 +194,9 @@ export function chooseShiftHours(
 ): number {
   const remainingHours = remainingMinutes / 60;
   const cap = Math.min(MAX_DAILY_MINUTES / 60, maxHours, remainingHours);
+  if (employmentType === "AZUBI" && remainingHours < 3) {
+    return cap >= remainingHours ? remainingHours : 0;
+  }
   const minimum =
     employmentType === "AZUBI"
       ? Math.min(...ALLOWED_HOURS.AZUBI)
@@ -382,7 +371,6 @@ function placeOneShift(state: SchedulerState, employee: Employee): boolean {
     const day = state.dayOf(isoDate);
     if (day.closed) continue;
     if (maxPaidForDay(day) === 0) continue;
-    if (isSchoolDay(employee, isoDate)) continue;
     if (consecutiveRunLengthWith(worked, isoDate) > 6) continue;
     const weekKey = weekKeyOf(isoDate);
     if (weekCap !== null && (weekUsed.get(weekKey) ?? 0) >= weekCap) continue;
@@ -402,7 +390,6 @@ function placeOneShift(state: SchedulerState, employee: Employee): boolean {
     if (worked.has(isoDate)) continue; // max. ein Dienst pro Tag
     const day = state.dayOf(isoDate);
     if (day.closed) continue; // Betriebsruhe -> kein Dienst
-    if (isSchoolDay(employee, isoDate)) continue; // Azubi: Berufsschule
     const weekKey = weekKeyOf(isoDate);
 
     // Azubi-Wochendecke: was in dieser Woche noch frei ist.
@@ -436,6 +423,10 @@ function placeOneShift(state: SchedulerState, employee: Employee): boolean {
 
     const consecutivePenalty = runLength >= 5 ? (runLength - 4) * 8 : 0;
     const weekendPenalty = isWeekend(isoDate) ? weekendCount * 1.5 : 0;
+    const weekBalancePenalty =
+      employee.employmentType === "AZUBI"
+        ? ((weekUsed.get(weekKey) ?? 0) / 60) * 2
+        : 0;
 
     const jitter = state.rng() * 0.01; // deterministisch (seeded), nur Tie-Break
 
@@ -443,7 +434,8 @@ function placeOneShift(state: SchedulerState, employee: Employee): boolean {
       deficitHours * 10 +
       dayWeight * 3 -
       consecutivePenalty -
-      weekendPenalty +
+      weekendPenalty -
+      weekBalancePenalty +
       jitter;
 
     if (score > bestScore) {
@@ -511,7 +503,6 @@ function repairDemand(state: SchedulerState, employeesById: Map<string, Employee
         if (to === from || worked.has(to)) continue;
         const day = state.dayOf(to);
         if (day.closed || maxPaidForDay(day) < shift.paidMinutes) continue; // passt nicht
-        if (isSchoolDay(employee, to)) continue; // Azubi: Berufsschule
         // Regeln prüfen, als ob die alte Schicht bereits entfernt wäre.
         const trial = new Set(worked);
         trial.delete(from);

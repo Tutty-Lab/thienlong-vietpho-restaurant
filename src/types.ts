@@ -20,12 +20,18 @@ export type WeekdayName =
 
 /** Einstellungen fuer Auszubildende innerhalb und ausserhalb der Schulzeit. */
 export type AzubiConfig = {
-  /** true = Berufsschule laeuft; in diesem Zustand gilt ein Soll von 0 h. */
+  /** true = fuer diesen Azubi ist eine Berufsschulzeit hinterlegt. */
   inSchoolTerm: boolean;
-  /** Frei waehlbare Schultage (0 bis 7 Tage). */
+  /** Inklusiver Beginn der Berufsschulzeit (ISO yyyy-MM-dd). */
+  schoolTermStart?: string;
+  /** Inklusives Ende der Berufsschulzeit (ISO yyyy-MM-dd). */
+  schoolTermEnd?: string;
+  /** @deprecated Altdaten; Schultage beeinflussen die Planung nicht mehr. */
   schoolDays: WeekdayName[];
   /** Vom Chef gesetztes Monatssoll ausserhalb der Schulzeit. */
   monthlyHoursOutOfTerm?: number;
+  /** Exaktes Monatssoll fuer gemischte Schul-/Arbeitsmonate, Schluessel yyyy-MM. */
+  monthlyHoursByMonth?: Record<string, number>;
   /** @deprecated Altdaten; werden beim Laden migriert. */
   weeklyHoursInTerm?: number;
   /** @deprecated Altdaten; werden beim Laden auf Monatsstunden umgerechnet. */

@@ -9,11 +9,22 @@ import { minutesToDecimalHours, minutesToTime } from "../lib/time";
 import { signedHours } from "../lib/dateFormat";
 import { MONTH_NAMES_DE } from "../lib/dateFormat";
 import { holidayNames as holidayNamesOf } from "../lib/holidays";
+import { azubiTimesheetMode, isAzubiSchoolTermDate } from "../lib/azubi";
 import { format } from "date-fns";
 
 // Deutscher Monats-Titel für das offizielle Dokument.
 function monthLabelDe(year: number, month: number): string {
   return `${MONTH_NAMES_DE[month - 1]} ${year}`;
+}
+
+function employmentLabelDe(employee: Employee, year: number, month: number): string {
+  if (employee.employmentType === "VOLLZEIT") return "Vollzeit";
+  if (employee.employmentType === "TEILZEIT") return "Teilzeit";
+
+  const mode = azubiTimesheetMode(employee.azubi, year, month);
+  if (mode === "off") return "Ausbildung - kein Einsatz";
+  if (mode === "work") return "Ausbildung - Arbeit";
+  return "Ausbildung - Schule/Arbeit";
 }
 
 /**
@@ -57,13 +68,7 @@ export function StundenzettelPage({
         <Info label="Firmenname" value={schedule.companyName || "—"} />
         <Info
           label="Beschäftigungsart"
-          value={
-            employee.employmentType === "VOLLZEIT"
-              ? "Vollzeit"
-              : employee.employmentType === "AZUBI"
-                ? "Ausbildung"
-                : "Teilzeit"
-          }
+          value={employmentLabelDe(employee, schedule.year, schedule.month)}
         />
         <Info label="Mitarbeiter" value={employee.name} />
         <Info label="Monat" value={MONTH_NAMES_DE[schedule.month - 1]} />
@@ -90,6 +95,10 @@ export function StundenzettelPage({
             const holiday = holidayNames.get(d);
             const closed = closedByDate.get(d);
             const isWeekend = wd === "Samstag" || wd === "Sonntag";
+            const isSchoolTermWeekday =
+              employee.employmentType === "AZUBI" &&
+              !isWeekend &&
+              isAzubiSchoolTermDate(employee.azubi, d);
             let bemerkung: string;
             if (s) {
               bemerkung = holiday ? `Feiertag: ${holiday}` : "";
@@ -97,6 +106,8 @@ export function StundenzettelPage({
               bemerkung = closed.note || "Betriebsruhe";
             } else if (holiday) {
               bemerkung = `Frei (Feiertag: ${holiday})`;
+            } else if (isSchoolTermWeekday) {
+              bemerkung = "Berufsschule";
             } else {
               bemerkung = "Frei";
             }

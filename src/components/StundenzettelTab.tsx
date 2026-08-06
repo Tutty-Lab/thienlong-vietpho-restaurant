@@ -122,10 +122,9 @@ export function StundenzettelTab({ store }: { store: UseScheduleReturn }) {
 
         <p className="text-xs text-slate-500 mb-3">
           Tờ in <span className="font-medium">Stundenaufzeichnung</span> theo mẫu tiếng Đức (dùng nộp
-          tại Đức). <span className="font-medium">Xuất PDF</span> tải thẳng file .pdf về máy — trên
-          điện thoại sẽ mở bảng <span className="font-medium">Chia sẻ</span> để lưu vào Tệp hoặc gửi
-          đi. <span className="font-medium">In</span> mở hộp thoại in; nếu in ra giấy thì chọn lề
-          „Chuẩn", tỉ lệ 100 %.
+          tại Đức). <span className="font-medium">Xuất PDF</span> tải trực tiếp file .pdf về máy.{" "}
+          <span className="font-medium">In</span> mở hộp thoại in; nếu in ra giấy thì chọn lề „Chuẩn",
+          tỉ lệ 100 %.
         </p>
 
         {/* Xem trước trên màn hình cho nhân viên đã chọn */}

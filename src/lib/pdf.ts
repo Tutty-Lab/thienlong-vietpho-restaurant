@@ -5,7 +5,7 @@
 // ============================================================================
 
 import { jsPDF } from "jspdf";
-import html2canvas from "html2canvas";
+import html2canvas from "html2canvas-pro";
 
 const A4_WIDTH_MM = 210;
 const A4_HEIGHT_MM = 297;
@@ -69,30 +69,11 @@ export async function elementsToPdf(elements: HTMLElement[], filename: string): 
     );
   }
 
-  await deliver(doc.output("blob"), filename);
+  downloadPdfBlob(doc.output("blob"), filename);
 }
 
-/**
- * PDF ausliefern. Auf dem Handy NICHT einfach herunterladen:
- * iOS Safari ignoriert das download-Attribut und zeigt die PDF stattdessen
- * nur an, statt sie zu speichern. Deshalb zuerst das System-Teilen-Menü
- * anbieten („In Dateien sichern", per Zalo/Mail verschicken …) und nur am
- * Rechner den klassischen Download nehmen.
- */
-async function deliver(blob: Blob, filename: string): Promise<void> {
-  const file = new File([blob], filename, { type: "application/pdf" });
-
-  if (typeof navigator !== "undefined" && navigator.canShare?.({ files: [file] })) {
-    try {
-      await navigator.share({ files: [file], title: filename });
-      return;
-    } catch (err) {
-      // Abbruch durch den Nutzer ist kein Fehler – dann gar nichts tun.
-      if (err instanceof Error && err.name === "AbortError") return;
-      // Sonst (z.B. abgelaufene Nutzerinteraktion) unten normal herunterladen.
-    }
-  }
-
+/** PDF immer als Datei herunterladen; Teilen bleibt eine separate Nutzeraktion. */
+export function downloadPdfBlob(blob: Blob, filename: string): void {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;

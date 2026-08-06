@@ -4,8 +4,10 @@ import { AZUBI_MONTHLY_WARNING_HOURS, type EmploymentType } from "../types";
 import { splitTargetHours } from "../lib/splitTargetHours";
 import {
   azubiConfigOf,
+  azubiMonthKey,
+  azubiMonthMode,
   azubiMonthlyHoursNeedWarning,
-  azubiMonthlyHoursOutOfTerm,
+  azubiMonthlyHoursForMonth,
   azubiMonthlyMinutes,
   DEFAULT_AZUBI_CONFIG,
 } from "../lib/azubi";
@@ -105,21 +107,29 @@ export function EmployeesTab({ store }: { store: UseScheduleReturn }) {
           {schedule.employees.map((emp) => {
             const isAzubi = emp.employmentType === "AZUBI";
             const azubiConfig = isAzubi ? azubiConfigOf(emp.azubi) : null;
+            const azubiMode = azubiConfig
+              ? azubiMonthMode(azubiConfig, schedule.year, schedule.month)
+              : "work";
             const azubiMonthlyHours = azubiConfig
-              ? azubiMonthlyHoursOutOfTerm(azubiConfig)
+              ? azubiMonthlyHoursForMonth(azubiConfig, schedule.year, schedule.month)
               : 0;
             const azubiWarning =
               azubiConfig !== null &&
-              !azubiConfig.inSchoolTerm &&
-              azubiMonthlyHoursNeedWarning(azubiConfig);
+              azubiMonthlyHoursNeedWarning(azubiConfig, schedule.year, schedule.month);
             const info = isAzubi
               ? {
                   ok: !azubiWarning,
-                  text: azubiConfig?.inSchoolTerm
-                    ? "0h · kỳ học"
-                    : azubiWarning
-                      ? `⚠ ${azubiMonthlyHours}h/tháng`
-                      : `${azubiMonthlyHours}h/tháng · chủ đặt`,
+                  text: azubiMode === "school"
+                    ? azubiWarning
+                      ? `⚠ ${azubiMonthlyHours}h · kỳ học`
+                      : `${azubiMonthlyHours}h · kỳ học`
+                    : azubiMode === "mixed"
+                      ? azubiWarning
+                        ? `⚠ ${azubiMonthlyHours}h · học/làm`
+                        : `${azubiMonthlyHours}h · học/làm`
+                      : azubiWarning
+                        ? `⚠ ${azubiMonthlyHours}h/tháng`
+                        : `${azubiMonthlyHours}h/tháng · chủ đặt`,
                 }
               : splitInfo(emp.targetMinutes / 60, emp.employmentType);
             const tooMany = !isAzubi && emp.targetMinutes / 60 > WARN_HOURS;
@@ -155,37 +165,47 @@ export function EmployeesTab({ store }: { store: UseScheduleReturn }) {
                 <label className="flex flex-col sm:w-32">
                   <span className="text-xs text-slate-500 mb-1 sm:hidden">Giờ định mức</span>
                   {isAzubi ? (
-                    azubiConfig?.inSchoolTerm ? (
-                      <div
-                        className="rounded border border-emerald-200 bg-emerald-50 px-2 py-1 text-sm text-emerald-800"
-                        title="Trong kỳ học không xếp ca đi làm"
-                      >
-                        <b>0h</b> · kỳ học
-                      </div>
-                    ) : (
-                      <div className="flex items-center gap-1">
-                        <input
-                          type="number"
-                          min={0}
-                          step={0.5}
-                          className={`${inputClass} w-full ${
-                            azubiWarning ? "border-amber-400 text-amber-900" : ""
-                          }`}
-                          value={azubiMonthlyHours}
-                          aria-label={`Giờ tháng ngoài kỳ học của ${emp.name}`}
-                          aria-describedby={azubiWarning ? `azubi-warning-${emp.id}` : undefined}
-                          onChange={(event) =>
-                            updateEmployee(emp.id, {
-                              azubi: {
-                                ...azubiConfigOf(emp.azubi),
-                                monthlyHoursOutOfTerm: Math.max(0, Number(event.target.value)),
-                              },
-                            })
-                          }
-                        />
-                        <span className="text-slate-400">h</span>
-                      </div>
-                    )
+                    <div className="flex items-center gap-1">
+                      <input
+                        type="number"
+                        min={0}
+                        step={0.5}
+                        className={`${inputClass} w-full ${
+                          azubiWarning ? "border-amber-400 text-amber-900" : ""
+                        }`}
+                        value={azubiMonthlyHours}
+                        aria-label={
+                          azubiMode !== "work"
+                            ? `Giờ làm tháng ${schedule.month}/${schedule.year} của ${emp.name}`
+                            : `Giờ tháng ngoài kỳ học của ${emp.name}`
+                        }
+                        aria-describedby={azubiWarning ? `azubi-warning-${emp.id}` : undefined}
+                        onChange={(event) =>
+                          updateEmployee(emp.id, {
+                            azubi:
+                              azubiMode !== "work"
+                                ? {
+                                    ...azubiConfigOf(emp.azubi),
+                                    monthlyHoursByMonth: {
+                                      ...(azubiConfigOf(emp.azubi).monthlyHoursByMonth ?? {}),
+                                      [azubiMonthKey(schedule.year, schedule.month)]: Math.max(
+                                        0,
+                                        Number(event.target.value),
+                                      ),
+                                    },
+                                  }
+                                : {
+                                    ...azubiConfigOf(emp.azubi),
+                                    monthlyHoursOutOfTerm: Math.max(
+                                      0,
+                                      Number(event.target.value),
+                                    ),
+                                  },
+                          })
+                        }
+                      />
+                      <span className="text-slate-400">h</span>
+                    </div>
                   ) : (
                     <div className="flex items-center gap-1">
                       <input
