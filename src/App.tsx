@@ -109,7 +109,7 @@ function MainApp({ onLogout }: { onLogout: () => void }) {
           {tab === "mitarbeiter" && <EmployeesTab store={store} />}
           {tab === "azubi" && <AzubiTab store={store} />}
           {tab === "dienstplan" && <ScheduleTab store={store} />}
-          {tab === "docs" && <DocsTab />}
+          {tab === "docs" && <DocsTab storeId={store.storeId} />}
         </div>
         {/* Bảng chấm công chứa vùng in – luôn render khi tab active */}
         {tab === "stundenzettel" && <StundenzettelTab store={store} />}

@@ -10,6 +10,7 @@ import { signedHours } from "../lib/dateFormat";
 import { MONTH_NAMES_DE } from "../lib/dateFormat";
 import { holidayNames as holidayNamesOf } from "../lib/holidays";
 import { azubiTimesheetMode, isAzubiSchoolTermDate } from "../lib/azubi";
+import { zuschlagTotals } from "../lib/zuschlaege";
 import { format } from "date-fns";
 
 // Deutscher Monats-Titel für das offizielle Dokument.
@@ -34,17 +35,19 @@ function employmentLabelDe(employee: Employee, year: number, month: number): str
 export function StundenzettelPage({
   schedule,
   employee,
+  showThienlongExtras = false,
 }: {
   schedule: Schedule;
   employee: Employee;
+  showThienlongExtras?: boolean;
 }) {
   const dates = datesOfMonth(schedule.year, schedule.month);
   const byDate = new Map<string, Shift>();
-  for (const s of schedule.shifts) {
-    if (s.employeeId === employee.id) byDate.set(s.date, s);
-  }
+  const employeeShifts = schedule.shifts.filter((shift) => shift.employeeId === employee.id);
+  for (const shift of employeeShifts) byDate.set(shift.date, shift);
 
-  const totalMinutes = [...byDate.values()].reduce((a, s) => a + s.paidMinutes, 0);
+  const totalMinutes = employeeShifts.reduce((total, shift) => total + shift.paidMinutes, 0);
+  const surcharges = zuschlagTotals(employeeShifts);
   const diff = totalMinutes - employee.targetMinutes;
   const holidayNames = holidayNamesOf(schedule.year, schedule.holidayState);
   const closedByDate = new Map(
@@ -72,6 +75,12 @@ export function StundenzettelPage({
         />
         <Info label="Mitarbeiter" value={employee.name} />
         <Info label="Monat" value={MONTH_NAMES_DE[schedule.month - 1]} />
+        {showThienlongExtras && employee.workRole && (
+          <Info
+            label="Einsatzbereich"
+            value={employee.workRole === "KITCHEN" ? "Küche" : "Service"}
+          />
+        )}
         <Info label="Sollstunden" value={`${minutesToDecimalHours(employee.targetMinutes)} h`} />
         <Info label="Jahr" value={String(schedule.year)} />
       </div>
@@ -165,6 +174,28 @@ export function StundenzettelPage({
           </div>
         </div>
       </div>
+
+      {showThienlongExtras && (
+        <div className="mt-3 border-t border-slate-300 pt-2 text-[12px]">
+          <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+            Zuschläge
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <div className="text-slate-500">Arbeitsstunden ab 20:00 Uhr</div>
+              <div className="font-semibold">
+                {minutesToDecimalHours(surcharges.after20Minutes)} h
+              </div>
+            </div>
+            <div>
+              <div className="text-slate-500">Sonntagsstunden</div>
+              <div className="font-semibold">
+                {minutesToDecimalHours(surcharges.sundayMinutes)} h
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="mt-10 grid grid-cols-3 gap-8 text-[11px]">
         <Signature label="Unterschrift Mitarbeiter" />

@@ -8,6 +8,9 @@ import type { HolidayState } from "./lib/holidays";
 
 export type EmploymentType = "VOLLZEIT" | "TEILZEIT" | "AZUBI";
 
+/** Einsatzbereich im Restaurant. Vorerst wird er bei Thienlong-Azubis gepflegt. */
+export type WorkRole = "KITCHEN" | "SERVICE";
+
 /** Wochentag-Schlüssel (Duplikat von lib/demand, um Zyklen zu vermeiden). */
 export type WeekdayName =
   | "monday"
@@ -55,6 +58,8 @@ export type Employee = {
   targetMinutes: number;
   /** Nur bei employmentType === "AZUBI" gesetzt. */
   azubi?: AzubiConfig;
+  /** Bếp (KITCHEN) oder Bồi (SERVICE), wenn die Person fest zugeordnet ist. */
+  workRole?: WorkRole;
   /**
    * Häkchen „Lưu" in der Mitarbeiterliste: vom Nutzer gesetzte Bestätigung,
    * dass die Daten dieser Person geprüft und übernommen sind. Rein als Merker

@@ -48,6 +48,14 @@ function overridesToMap(list: DateOverride[]): OverrideMap {
   return map;
 }
 
+function normalizeEmployee(employee: Employee, year: number, month: number): Employee {
+  const roleScopedEmployee =
+    employee.employmentType === "AZUBI"
+      ? employee
+      : { ...employee, workRole: undefined };
+  return withAutomaticAzubiTarget(roleScopedEmployee, year, month);
+}
+
 /** Migriert einen (evtl. alten) gespeicherten Stand auf das aktuelle Schema. */
 function normalizeSchedule(raw: Schedule | undefined, store: StoreConfig): Schedule {
   const base = emptySchedule(store);
@@ -72,7 +80,7 @@ function normalizeSchedule(raw: Schedule | undefined, store: StoreConfig): Sched
         : structuredClone(DEFAULT_WORK_HOURS),
     dateOverrides: Array.isArray(raw.dateOverrides) ? raw.dateOverrides : [],
     employees: (raw.employees ?? []).map((employee) =>
-      withAutomaticAzubiTarget(employee, year, month),
+      normalizeEmployee(employee, year, month),
     ),
     shifts: raw.shifts ?? [],
   };
@@ -194,8 +202,11 @@ export function useSchedule() {
     [schedule],
   );
   const readiness = useMemo(
-    () => checkScheduleReadiness(schedule.employees),
-    [schedule.employees],
+    () =>
+      checkScheduleReadiness(schedule.employees, {
+        requireAzubiWorkRole: storeId === "thienlong",
+      }),
+    [schedule.employees, storeId],
   );
 
   // ----- Firma / Monat / Öffnungszeiten -----
@@ -229,7 +240,7 @@ export function useSchedule() {
       ...s,
       employees: s.employees.map((e) =>
         e.id === id
-          ? withAutomaticAzubiTarget({ ...e, ...patch }, s.year, s.month)
+          ? normalizeEmployee({ ...e, ...patch }, s.year, s.month)
           : e,
       ),
     }));
@@ -254,6 +265,7 @@ export function useSchedule() {
       const shifts = generateSchedule({
         year: schedule.year,
         month: schedule.month,
+        storeId,
         workHours: schedule.workHours,
         overrides: overridesToMap(schedule.dateOverrides),
         employees: schedule.employees,
@@ -267,9 +279,11 @@ export function useSchedule() {
   }, [
     schedule.year,
     schedule.month,
+    storeId,
     schedule.workHours,
     schedule.dateOverrides,
     schedule.employees,
+    schedule.holidayState,
     readiness,
   ]);
 

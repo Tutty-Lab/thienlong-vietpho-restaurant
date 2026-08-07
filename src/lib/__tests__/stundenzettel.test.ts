@@ -6,7 +6,7 @@ import type { AzubiConfig, Employee, Schedule } from "../../types";
 import { withAutomaticAzubiTarget } from "../azubi";
 import { DEFAULT_WORK_HOURS } from "../workHours";
 
-function renderAzubi(azubi: AzubiConfig): string {
+function renderAzubi(azubi: AzubiConfig, showThienlongExtras = true): string {
   const employee: Employee = withAutomaticAzubiTarget(
     {
       id: "AZ-PRINT",
@@ -31,7 +31,7 @@ function renderAzubi(azubi: AzubiConfig): string {
   };
 
   return renderToStaticMarkup(
-    createElement(StundenzettelPage, { schedule, employee }),
+    createElement(StundenzettelPage, { schedule, employee, showThienlongExtras }),
   );
 }
 
@@ -47,6 +47,8 @@ describe("Stundenaufzeichnung fuer Azubi", () => {
 
     expect(html).toContain("Ausbildung - kein Einsatz");
     expect(html).toContain("Berufsschule");
+    expect(html).toContain("Arbeitsstunden ab 20:00 Uhr");
+    expect(html).toContain("Sonntagsstunden");
   });
 
   it("shows the full-month work state", () => {
@@ -71,5 +73,15 @@ describe("Stundenaufzeichnung fuer Azubi", () => {
 
     expect(html).toContain("Ausbildung - Schule/Arbeit");
     expect(html).toContain("Berufsschule");
+  });
+
+  it("keeps the Thienlong Zuschlag block out of other stores", () => {
+    const html = renderAzubi(
+      { inSchoolTerm: false, schoolDays: [], monthlyHoursOutOfTerm: 154 },
+      false,
+    );
+
+    expect(html).not.toContain("Zuschläge");
+    expect(html).not.toContain("Sonntagsstunden");
   });
 });

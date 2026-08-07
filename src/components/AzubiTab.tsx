@@ -12,6 +12,7 @@ import {
 import {
   AZUBI_MONTHLY_WARNING_HOURS,
   type AzubiConfig,
+  type WorkRole,
 } from "../types";
 
 type TermMonth = {
@@ -44,6 +45,7 @@ function termMonthsOf(cfg: AzubiConfig): TermMonth[] {
 
 export function AzubiTab({ store }: { store: UseScheduleReturn }) {
   const { schedule, updateEmployee } = store;
+  const showWorkRole = store.storeId === "thienlong";
   const azubis = schedule.employees.filter((employee) => employee.employmentType === "AZUBI");
   const monthDates = datesOfMonth(schedule.year, schedule.month);
   const monthStart = monthDates[0];
@@ -111,6 +113,25 @@ export function AzubiTab({ store }: { store: UseScheduleReturn }) {
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
                 <h3 className="font-semibold text-slate-900">{employee.name}</h3>
+                {showWorkRole && (
+                  <label className="flex items-center gap-2 text-sm text-slate-700">
+                    <span className="text-xs text-slate-500">Vị trí</span>
+                    <select
+                      value={employee.workRole ?? ""}
+                      onChange={(event) =>
+                        updateEmployee(employee.id, {
+                          workRole: (event.target.value || undefined) as WorkRole | undefined,
+                        })
+                      }
+                      aria-label={`Vị trí làm việc của ${employee.name}`}
+                      className="rounded border border-slate-300 bg-white px-2 py-1 text-sm focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-500"
+                    >
+                      <option value="">Chọn vị trí</option>
+                      <option value="KITCHEN">Bếp</option>
+                      <option value="SERVICE">Bồi</option>
+                    </select>
+                  </label>
+                )}
                 <label className="flex items-center gap-2 cursor-pointer select-none">
                   <input
                     type="checkbox"

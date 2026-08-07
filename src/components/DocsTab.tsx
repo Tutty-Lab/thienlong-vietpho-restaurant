@@ -4,6 +4,13 @@ import {
   WEEKDAY_LABELS_VI,
   type WeekdayKey,
 } from "../lib/demand";
+import {
+  THIENLONG_REFERENCE_INVOICES,
+  thienlongDemandHours,
+  thienlongDemandIntervals,
+  thienlongDemandWeight,
+  thienlongLateShiftRatio,
+} from "../lib/thienlongDemand";
 
 const WEEKDAY_ORDER: WeekdayKey[] = [
   "monday",
@@ -14,6 +21,40 @@ const WEEKDAY_ORDER: WeekdayKey[] = [
   "saturday",
   "sunday",
 ];
+
+const THIENLONG_DAY_WEIGHTS = Object.fromEntries(
+  WEEKDAY_ORDER.map((weekday) => [weekday, thienlongDemandWeight(weekday)]),
+) as Record<WeekdayKey, number>;
+
+const THIENLONG_LATE_SHIFT_RATIOS = Object.fromEntries(
+  WEEKDAY_ORDER.map((weekday) => [weekday, thienlongLateShiftRatio(weekday)]),
+) as Record<WeekdayKey, number>;
+
+function roleRatio(kitchenHours: number, serviceHours: number): string {
+  const total = kitchenHours + serviceHours;
+  return `${((kitchenHours / total) * 100).toFixed(1).replace(".", ",")}% / ${(
+    (serviceHours / total) *
+    100
+  )
+    .toFixed(1)
+    .replace(".", ",")}%`;
+}
+
+function demandHoursBetween(
+  weekday: WeekdayKey,
+  role: "KITCHEN" | "SERVICE",
+  startMinutes: number,
+  endMinutes: number,
+): number {
+  return thienlongDemandIntervals(weekday, role).reduce((total, demand) => {
+    const overlap = Math.max(
+      0,
+      Math.min(endMinutes, demand.endMinutes) - Math.max(startMinutes, demand.startMinutes),
+    );
+    const duration = demand.endMinutes - demand.startMinutes;
+    return total + (duration > 0 ? (demand.personMinutes * overlap) / duration : 0);
+  }, 0) / 60;
+}
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -70,7 +111,21 @@ function WeekdayTable({
   );
 }
 
-export function DocsTab() {
+export function DocsTab({ storeId }: { storeId: string }) {
+  const isThienlong = storeId === "thienlong";
+  const dayWeights = isThienlong ? THIENLONG_DAY_WEIGHTS : DAY_WEIGHTS;
+  const lateShiftRatios = isThienlong ? THIENLONG_LATE_SHIFT_RATIOS : LATE_SHIFT_RATIOS;
+  const weekdayKitchen = thienlongDemandHours("monday", "KITCHEN");
+  const weekdayService = thienlongDemandHours("monday", "SERVICE");
+  const weekdayLunchKitchen = demandHoursBetween("monday", "KITCHEN", 10 * 60 + 30, 15 * 60);
+  const weekdayLunchService = demandHoursBetween("monday", "SERVICE", 10 * 60 + 30, 15 * 60);
+  const weekdayEveningKitchen = demandHoursBetween("monday", "KITCHEN", 16 * 60 + 30, 22 * 60);
+  const weekdayEveningService = demandHoursBetween("monday", "SERVICE", 16 * 60 + 30, 22 * 60);
+  const fridayKitchen = thienlongDemandHours("friday", "KITCHEN");
+  const fridayService = thienlongDemandHours("friday", "SERVICE");
+  const weekendKitchen = thienlongDemandHours("saturday", "KITCHEN");
+  const weekendService = thienlongDemandHours("saturday", "SERVICE");
+
   return (
     <div className="space-y-4 max-w-3xl">
       <div className="rounded-lg bg-slate-900 text-white p-4 sm:p-5">
@@ -80,6 +135,77 @@ export function DocsTab() {
           chỉnh trong giao diện). Bảng bên dưới đọc trực tiếp từ mã nguồn nên luôn đúng với lịch thực tế.
         </p>
       </div>
+
+      {isThienlong && (
+        <Section title="Thienlong: nhu cầu Bếp / Bồi theo giờ">
+          <p>
+            Thuật toán dùng các khung giờ-người khách đã cung cấp để ưu tiên Azubi đúng vị trí.
+            Mốc tham chiếu là <b>{THIENLONG_REFERENCE_INVOICES} Rechnungen</b>; lịch vẫn tính
+            trực tiếp từ nhu cầu giờ-người bên dưới.
+          </p>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[560px] border-collapse text-sm">
+              <thead>
+                <tr className="bg-slate-50">
+                  <th className="border border-slate-200 px-3 py-2 text-left">Nhóm ngày</th>
+                  <th className="border border-slate-200 px-3 py-2 text-right">Bếp</th>
+                  <th className="border border-slate-200 px-3 py-2 text-right">Bồi</th>
+                  <th className="border border-slate-200 px-3 py-2 text-right">Tỉ lệ Bếp / Bồi</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td className="border border-slate-200 px-3 py-2">Thứ 2-5 · trưa</td>
+                  <td className="border border-slate-200 px-3 py-2 text-right">{weekdayLunchKitchen}h</td>
+                  <td className="border border-slate-200 px-3 py-2 text-right">{weekdayLunchService}h</td>
+                  <td className="border border-slate-200 px-3 py-2 text-right font-medium">
+                    {roleRatio(weekdayLunchKitchen, weekdayLunchService)}
+                  </td>
+                </tr>
+                <tr>
+                  <td className="border border-slate-200 px-3 py-2">Thứ 2-5 · tối</td>
+                  <td className="border border-slate-200 px-3 py-2 text-right">{weekdayEveningKitchen}h</td>
+                  <td className="border border-slate-200 px-3 py-2 text-right">{weekdayEveningService}h</td>
+                  <td className="border border-slate-200 px-3 py-2 text-right font-medium">
+                    {roleRatio(weekdayEveningKitchen, weekdayEveningService)}
+                  </td>
+                </tr>
+                <tr>
+                  <td className="border border-slate-200 px-3 py-2">Thứ 2-5 · cả ngày</td>
+                  <td className="border border-slate-200 px-3 py-2 text-right">{weekdayKitchen}h</td>
+                  <td className="border border-slate-200 px-3 py-2 text-right">{weekdayService}h</td>
+                  <td className="border border-slate-200 px-3 py-2 text-right font-medium">
+                    {roleRatio(weekdayKitchen, weekdayService)}
+                  </td>
+                </tr>
+                <tr>
+                  <td className="border border-slate-200 px-3 py-2">Thứ 6</td>
+                  <td className="border border-slate-200 px-3 py-2 text-right">{fridayKitchen}h</td>
+                  <td className="border border-slate-200 px-3 py-2 text-right">{fridayService}h</td>
+                  <td className="border border-slate-200 px-3 py-2 text-right font-medium">
+                    {roleRatio(fridayKitchen, fridayService)}
+                  </td>
+                </tr>
+                <tr>
+                  <td className="border border-slate-200 px-3 py-2">Thứ 7 / CN / lễ</td>
+                  <td className="border border-slate-200 px-3 py-2 text-right">{weekendKitchen}h</td>
+                  <td className="border border-slate-200 px-3 py-2 text-right">{weekendService}h</td>
+                  <td className="border border-slate-200 px-3 py-2 text-right font-medium">
+                    {roleRatio(weekendKitchen, weekendService)}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p className="text-slate-600">
+            Cao điểm Bếp: 12:00-13:00 và 18:00-20:00, thường 3-4 người. Bồi ưu tiên 2
+            người vào 12:00-13:30 và 18:00-20:00; ngoài cao điểm tối thiểu 1 người.
+            Ca tối 16:30-22:00 được giữ đúng <b>5,5h</b> để lắp vừa khung.
+            Riêng Bồi cuối tuần có nhu cầu từ 10:30; phần 10:30-11:30 chỉ lắp được khi
+            giờ làm cuối tuần trong Cài đặt cũng bắt đầu từ 10:30.
+          </p>
+        </Section>
+      )}
 
       <Section title="Nguyên tắc bắt buộc (luôn đúng)">
         <ul className="list-disc pl-5 space-y-1">
@@ -107,9 +233,9 @@ export function DocsTab() {
           hơn. Đây là hệ số tương đối, ngày thường = 1.0.
         </p>
         <WeekdayTable
-          values={DAY_WEIGHTS}
+          values={dayWeights}
           format={(v) => v.toFixed(2).replace(".", ",")}
-          highlight={(k) => DAY_WEIGHTS[k] > 1}
+          highlight={(k) => dayWeights[k] > 1}
         />
         <p className="text-slate-600">
           Công thức mỗi ngày: <code>giờ ngày = tổng giờ tháng × trọng số ngày ÷ tổng trọng số</code>.
@@ -125,9 +251,9 @@ export function DocsTab() {
           còn lại là ca sáng). <b>Tối luôn đông hơn sáng</b> (đều trên 50%), trong đó Thứ Bảy được ưu tiên hơn Chủ nhật.
         </p>
         <WeekdayTable
-          values={LATE_SHIFT_RATIOS}
+          values={lateShiftRatios}
           format={(v) => Math.round(v * 100) + "%"}
-          highlight={(k) => LATE_SHIFT_RATIOS[k] >= 0.7}
+          highlight={(k) => lateShiftRatios[k] >= 0.7}
         />
         <p className="text-slate-600">
           Ngoài ra: Teilzeit (bán thời gian) thiên về ca tối; Vollzeit (toàn thời gian) cân bằng

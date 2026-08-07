@@ -151,11 +151,13 @@ export function EmployeesTab({ store }: { store: UseScheduleReturn }) {
                   <select
                     className={`${inputClass} w-full`}
                     value={emp.employmentType}
-                    onChange={(e) =>
+                    onChange={(e) => {
+                      const employmentType = e.target.value as EmploymentType;
                       updateEmployee(emp.id, {
-                        employmentType: e.target.value as EmploymentType,
-                      })
-                    }
+                        employmentType,
+                        workRole: employmentType === "AZUBI" ? emp.workRole : undefined,
+                      });
+                    }}
                   >
                     <option value="VOLLZEIT">Toàn thời gian</option>
                     <option value="TEILZEIT">Bán thời gian</option>

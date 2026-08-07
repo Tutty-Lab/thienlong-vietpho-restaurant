@@ -58,4 +58,22 @@ describe("Schedule readiness", () => {
     expect(result.ready).toBe(false);
     expect(result.issues).toContain("Nhân viên thường phải có định mức ít nhất 3 giờ.");
   });
+
+  it("requires every Thienlong Azubi to be assigned to Bếp or Bồi", () => {
+    const azubi = employee({
+      id: "azubi-1",
+      employmentType: "AZUBI",
+      targetMinutes: 40 * 60,
+    });
+
+    expect(
+      checkScheduleReadiness([employee(), azubi], { requireAzubiWorkRole: true }).issues,
+    ).toContain("Hãy chọn vị trí Bếp hoặc Bồi cho tất cả Azubi.");
+    expect(
+      checkScheduleReadiness(
+        [employee(), { ...azubi, workRole: "KITCHEN" }],
+        { requireAzubiWorkRole: true },
+      ).ready,
+    ).toBe(true);
+  });
 });

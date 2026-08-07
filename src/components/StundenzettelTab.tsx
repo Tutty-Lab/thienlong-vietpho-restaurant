@@ -7,6 +7,7 @@ import { elementsToPdf, safeFileName } from "../lib/pdf";
 
 export function StundenzettelTab({ store }: { store: UseScheduleReturn }) {
   const { schedule } = store;
+  const showThienlongExtras = store.storeId === "thienlong";
   const [selectedId, setSelectedId] = useState<string>(schedule.employees[0]?.id ?? "");
   const [printList, setPrintList] = useState<Employee[] | null>(null);
   const [pdfList, setPdfList] = useState<Employee[] | null>(null);
@@ -130,7 +131,11 @@ export function StundenzettelTab({ store }: { store: UseScheduleReturn }) {
         {/* Xem trước trên màn hình cho nhân viên đã chọn */}
         {selected && (
           <div className="rounded-lg border border-slate-300 shadow-sm bg-white overflow-x-auto">
-            <StundenzettelPage schedule={schedule} employee={selected} />
+            <StundenzettelPage
+              schedule={schedule}
+              employee={selected}
+              showThienlongExtras={showThienlongExtras}
+            />
           </div>
         )}
       </div>
@@ -138,14 +143,24 @@ export function StundenzettelTab({ store }: { store: UseScheduleReturn }) {
       {/* Vùng in ẩn: mỗi nhân viên một trang */}
       <div className="print-area">
         {(printList ?? []).map((emp) => (
-          <StundenzettelPage key={emp.id} schedule={schedule} employee={emp} />
+          <StundenzettelPage
+            key={emp.id}
+            schedule={schedule}
+            employee={emp}
+            showThienlongExtras={showThienlongExtras}
+          />
         ))}
       </div>
 
       {/* Sân khấu ngoài màn hình – chỉ có nội dung trong lúc tạo PDF */}
       <div ref={pdfStage} aria-hidden="true" className="pdf-stage no-print">
         {(pdfList ?? []).map((emp) => (
-          <StundenzettelPage key={emp.id} schedule={schedule} employee={emp} />
+          <StundenzettelPage
+            key={emp.id}
+            schedule={schedule}
+            employee={emp}
+            showThienlongExtras={showThienlongExtras}
+          />
         ))}
       </div>
     </>

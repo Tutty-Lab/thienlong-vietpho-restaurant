@@ -37,6 +37,14 @@ import {
   type WorkHoursConfig,
 } from "./workHours";
 import { holidaysOf, type HolidayState } from "./holidays";
+import {
+  clipDemandIntervals,
+  demandCoverageGain,
+  demandCoverageGap,
+  thienlongDemandIntervals,
+  thienlongDemandWeight,
+  thienlongLateShiftRatio,
+} from "./thienlongDemand";
 
 export type GenerateInput = {
   year: number;
@@ -46,6 +54,8 @@ export type GenerateInput = {
   /** Ausnahmen für einzelne Daten (geschlossen / abweichende Zeiten). */
   overrides?: OverrideMap;
   employees: Employee[];
+  /** Filialschlüssel; aktiviert ausschließlich das passende Nachfrageprofil. */
+  storeId?: string;
   /** Feiertage als ISO-Set; sonst aus holidayState berechnet. */
   holidays?: Set<string>;
   /** Bundesland für die Feiertage (Standard: Baden-Württemberg). */
@@ -72,6 +82,11 @@ type SchedulerState = {
   shifts: Shift[];
   /** Für Nachfrage/Spätquote maßgeblicher Wochentag (Feiertag = Sonntag). */
   effKeyOf: (isoDate: string) => WeekdayKey;
+  /** Filialspezifische Spätquote für dieses konkrete Datum. */
+  lateRatioOf: (isoDate: string) => number;
+  holidays: Set<string>;
+  employeesById: Map<string, Employee>;
+  isThienlong: boolean;
   /** Aufgelöster Tag (geschlossen? + Arbeitszeit-Fenster) für ein Datum. */
   dayOf: (isoDate: string) => ResolvedDay;
   rng: () => number;
@@ -259,8 +274,7 @@ function chooseTemplateType(
   employmentType: Employee["employmentType"],
 ): TemplateType {
   const ds = state.dateState.get(isoDate)!;
-  const effKey = state.effKeyOf(isoDate);
-  const desired = LATE_SHIFT_RATIOS[effKey];
+  const desired = state.lateRatioOf(isoDate);
   const currentLateRatio = ds.totalPaid > 0 ? ds.latePaid / ds.totalPaid : 0;
 
   // Teilzeit tendenziell in Spätschichten. Früher wurde sonntags zusätzlich
@@ -277,8 +291,9 @@ function makeShift(
   employee: Employee,
   isoDate: string,
   paidMinutes: number,
+  typeOverride?: TemplateType,
 ): Shift {
-  const type = chooseTemplateType(state, isoDate, employee.employmentType);
+  const type = typeOverride ?? chooseTemplateType(state, isoDate, employee.employmentType);
   const blocks = state.dayOf(isoDate).blocks;
 
   const presence = presenceFromPaid(paidMinutes);
@@ -316,6 +331,64 @@ function makeShift(
     shiftType: tpl.type,
     generated: true,
   };
+}
+
+function roleDemandOf(state: SchedulerState, employee: Employee, isoDate: string) {
+  if (!state.isThienlong || employee.employmentType !== "AZUBI" || !employee.workRole) {
+    return null;
+  }
+  return clipDemandIntervals(
+    thienlongDemandIntervals(
+      weekdayKeyOf(parseIsoDate(isoDate)),
+      employee.workRole,
+      state.holidays.has(isoDate),
+    ),
+    state.dayOf(isoDate).blocks,
+  );
+}
+
+function roleShiftsOnDate(
+  state: SchedulerState,
+  employee: Employee,
+  isoDate: string,
+): Shift[] {
+  if (!employee.workRole) return [];
+  return state.shifts.filter(
+    (shift) =>
+      shift.date === isoDate &&
+      state.employeesById.get(shift.employeeId)?.employmentType === "AZUBI" &&
+      state.employeesById.get(shift.employeeId)?.workRole === employee.workRole,
+  );
+}
+
+/** Pick the placement that closes the largest uncovered Kitchen/Service gap. */
+function makeRoleAwareShift(
+  state: SchedulerState,
+  employee: Employee,
+  isoDate: string,
+  paidMinutes: number,
+): Shift {
+  const demand = roleDemandOf(state, employee, isoDate);
+  if (!demand) return makeShift(state, employee, isoDate, paidMinutes);
+
+  const existing = roleShiftsOnDate(state, employee, isoDate);
+  const early = makeShift(state, employee, isoDate, paidMinutes, "EARLY");
+  const late = makeShift(state, employee, isoDate, paidMinutes, "LATE");
+  const earlyGain = demandCoverageGain(early, existing, demand);
+  const lateGain = demandCoverageGain(late, existing, demand);
+
+  if (earlyGain === lateGain) {
+    return chooseTemplateType(state, isoDate, employee.employmentType) === "EARLY"
+      ? early
+      : late;
+  }
+  return earlyGain > lateGain ? early : late;
+}
+
+function roleGapHours(state: SchedulerState, employee: Employee, isoDate: string): number {
+  const demand = roleDemandOf(state, employee, isoDate);
+  if (!demand) return 0;
+  return demandCoverageGap(roleShiftsOnDate(state, employee, isoDate), demand) / 60;
 }
 
 /** Passt diese bezahlte Zeit (inkl. nötiger Pause) in EINEN Block? */
@@ -422,7 +495,13 @@ function placeOneShift(state: SchedulerState, employee: Employee): boolean {
 
     const ds = state.dateState.get(isoDate)!;
     const deficitHours = (state.rawTarget.get(isoDate)! - ds.totalPaid) / 60;
-    const dayWeight = DAY_WEIGHTS[state.effKeyOf(isoDate)];
+    const dayWeight = state.isThienlong
+      ? thienlongDemandWeight(
+          weekdayKeyOf(parseIsoDate(isoDate)),
+          state.holidays.has(isoDate),
+        )
+      : DAY_WEIGHTS[state.effKeyOf(isoDate)];
+    const uncoveredRoleHours = roleGapHours(state, employee, isoDate);
 
     const consecutivePenalty = runLength >= 5 ? (runLength - 4) * 8 : 0;
     const weekendPenalty = isWeekend(isoDate) ? weekendCount * 1.5 : 0;
@@ -439,6 +518,7 @@ function placeOneShift(state: SchedulerState, employee: Employee): boolean {
       consecutivePenalty -
       weekendPenalty -
       weekBalancePenalty +
+      uncoveredRoleHours * 1.5 +
       jitter;
 
     if (score > bestScore) {
@@ -450,7 +530,7 @@ function placeOneShift(state: SchedulerState, employee: Employee): boolean {
 
   if (bestDate === null || bestHours === 0) return false;
 
-  const shift = makeShift(state, employee, bestDate, bestHours * 60);
+  const shift = makeRoleAwareShift(state, employee, bestDate, bestHours * 60);
   applyShift(state, shift);
   state.remaining.set(employee.id, remaining - shift.paidMinutes);
   return true;
@@ -494,6 +574,8 @@ function repairDemand(state: SchedulerState, employeesById: Map<string, Employee
     // Kopie, da wir state.shifts während der Iteration verändern.
     for (const shift of [...state.shifts]) {
       const employee = employeesById.get(shift.employeeId)!;
+      // Moving a fixed-role Thienlong shift would undo its interval coverage.
+      if (state.isThienlong && employee.employmentType === "AZUBI" && employee.workRole) continue;
       const from = shift.date;
       const worked = state.worked.get(employee.id)!;
 
@@ -597,14 +679,24 @@ function balanceShiftTypes(state: SchedulerState): void {
     if (onDay.length === 0) continue;
 
     const ds = state.dateState.get(isoDate)!;
-    const desired = LATE_SHIFT_RATIOS[state.effKeyOf(isoDate)];
+    const desired = state.lateRatioOf(isoDate);
+    const quotaCandidates = onDay.filter(
+      (shift) => {
+        const employee = state.employeesById.get(shift.employeeId);
+        return (
+          !state.isThienlong ||
+          employee?.employmentType !== "AZUBI" ||
+          !employee.workRole
+        );
+      },
+    );
 
     // 1. Quote annähern: jeweils die Schicht drehen, die am meisten hilft.
-    for (let step = 0; step < onDay.length * 2; step++) {
+    for (let step = 0; step < quotaCandidates.length * 2; step++) {
       if (ds.totalPaid === 0) break;
       let best: Shift | null = null;
       let bestDiff = Math.abs(ds.latePaid / ds.totalPaid - desired);
-      for (const s of onDay) {
+      for (const s of quotaCandidates) {
         const late =
           s.shiftType === "LATE" ? ds.latePaid - s.paidMinutes : ds.latePaid + s.paidMinutes;
         const diff = Math.abs(late / ds.totalPaid - desired);
@@ -621,8 +713,17 @@ function balanceShiftTypes(state: SchedulerState): void {
     //    nicht – dann bleibt es bei der Quote-Entscheidung.
     if (onDay.length < 2) continue;
 
-    const shortestOf = (list: Shift[]) =>
-      list.length === 0 ? null : list.reduce((a, b) => (a.paidMinutes <= b.paidMinutes ? a : b));
+    const shortestOf = (list: Shift[]) => {
+      if (list.length === 0) return null;
+      return [...list].sort((a, b) => {
+        const aEmployee = state.employeesById.get(a.employeeId);
+        const bEmployee = state.employeesById.get(b.employeeId);
+        const aFixed = aEmployee?.employmentType === "AZUBI" && Boolean(aEmployee.workRole);
+        const bFixed = bEmployee?.employmentType === "AZUBI" && Boolean(bEmployee.workRole);
+        if (aFixed !== bFixed) return aFixed ? 1 : -1;
+        return a.paidMinutes - b.paidMinutes;
+      })[0];
+    };
 
     const startsAtOpening = (shift: Shift) =>
       (shift.segments?.[0]?.startMinutes ?? shift.startMinutes) === day.blocks[0].startMinutes;
@@ -737,12 +838,27 @@ export function generateSchedule(input: GenerateInput): Shift[] {
   const { year, month, workHours, employees } = input;
   const holidays = input.holidays ?? holidaysOf(year, input.holidayState ?? "BW");
   const overrides = input.overrides ?? {};
+  const isThienlong = input.storeId === "thienlong";
 
   const effKeyOf = (isoDate: string): WeekdayKey => effectiveWeekdayKey(isoDate, holidays);
   const dayOf = (isoDate: string): ResolvedDay => resolveDay(workHours, isoDate, holidays, overrides);
   // Nachfrage-Gewicht: geschlossene Tage tragen 0 (bekommen keine Stunden).
-  const weightOf = (isoDate: string): number =>
-    dayOf(isoDate).closed ? 0 : DAY_WEIGHTS[effKeyOf(isoDate)];
+  const weightOf = (isoDate: string): number => {
+    if (dayOf(isoDate).closed) return 0;
+    return isThienlong
+      ? thienlongDemandWeight(
+          weekdayKeyOf(parseIsoDate(isoDate)),
+          holidays.has(isoDate),
+        )
+      : DAY_WEIGHTS[effKeyOf(isoDate)];
+  };
+  const lateRatioOf = (isoDate: string): number =>
+    isThienlong
+      ? thienlongLateShiftRatio(
+          weekdayKeyOf(parseIsoDate(isoDate)),
+          holidays.has(isoDate),
+        )
+      : LATE_SHIFT_RATIOS[effKeyOf(isoDate)];
 
   const dates = datesOfMonth(year, month);
   const totalTargetMin = employees.reduce((sum, e) => sum + e.targetMinutes, 0);
@@ -789,6 +905,10 @@ export function generateSchedule(input: GenerateInput): Shift[] {
       remaining: new Map(employees.map((e) => [e.id, e.targetMinutes])),
       shifts: [],
       effKeyOf,
+      lateRatioOf,
+      holidays,
+      employeesById,
+      isThienlong,
       dayOf,
       rng: seededRandom(seed + salt),
       varyLengths,

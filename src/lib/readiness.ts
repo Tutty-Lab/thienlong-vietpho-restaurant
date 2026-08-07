@@ -5,7 +5,10 @@ export type ScheduleReadiness = {
   issues: string[];
 };
 
-export function checkScheduleReadiness(employees: Employee[]): ScheduleReadiness {
+export function checkScheduleReadiness(
+  employees: Employee[],
+  options: { requireAzubiWorkRole?: boolean } = {},
+): ScheduleReadiness {
   const issues: string[] = [];
 
   if (employees.length < 2) issues.push("Cần ít nhất 2 nhân viên.");
@@ -31,6 +34,14 @@ export function checkScheduleReadiness(employees: Employee[]): ScheduleReadiness
     )
   ) {
     issues.push("Nhân viên thường phải có định mức ít nhất 3 giờ.");
+  }
+  if (
+    options.requireAzubiWorkRole &&
+    employees.some(
+      (employee) => employee.employmentType === "AZUBI" && !employee.workRole,
+    )
+  ) {
+    issues.push("Hãy chọn vị trí Bếp hoặc Bồi cho tất cả Azubi.");
   }
 
   return { ready: issues.length === 0, issues };
