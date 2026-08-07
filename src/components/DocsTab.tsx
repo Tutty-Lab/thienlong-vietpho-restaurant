@@ -83,20 +83,20 @@ export function DocsTab() {
 
       <Section title="Nguyên tắc bắt buộc (luôn đúng)">
         <ul className="list-disc pl-5 space-y-1">
-          <li>Tối đa <b>8 giờ công</b> mỗi ngày cho một người.</li>
-          <li>Mỗi người <b>một ca mỗi ngày</b>.</li>
-          <li>Không làm quá <b>6 ngày liên tiếp</b>.</li>
+          <li>Tối đa <b>10 giờ công</b> mỗi ngày; ca liên tục có thể kéo dài đến <b>11 giờ có mặt</b> gồm giờ nghỉ.</li>
+          <li>Mỗi người làm tối đa <b>một ngày công/ngày</b>, có thể gồm <b>hai khung giờ tách rời</b>.</li>
+          <li>Không làm quá <b>6 ngày liên tiếp</b>, nên luôn có ít nhất một ngày nghỉ mỗi tuần.</li>
+          <li>Mỗi ngày mở cửa có ít nhất <b>2 nhân viên đến trước giờ mở cửa 30 phút</b>.</li>
           <li>
             Mỗi người phải đạt <b>đúng định mức tháng</b> (Sollstunden) — không thừa, không thiếu.
           </li>
           <li>
-            <b>Không tính giờ nghỉ (Pause).</b> Thứ 2–5 tiệm đóng cửa 15:00–16:30 để nhân viên nghỉ,
-            nên giờ nghỉ đã nằm sẵn trong khung mở cửa — không trừ thêm lần nữa.{" "}
-            <b>Giờ có mặt = giờ công.</b>
+            Ca liên tục trên 6 giờ có giờ nghỉ theo quy định. Với ca tách đôi Thứ 2–5, khoảng tiệm
+            đóng cửa 15:00–16:30 đã là thời gian nghỉ nên không trừ thêm Pause.
           </li>
           <li>
-            <b>Không xếp ai vào quãng đóng cửa.</b> Ngày có nghỉ trưa được chia thành hai khung; mỗi
-            ca phải nằm trọn trong một khung, không bao giờ vắt qua giờ đóng.
+            <b>Không xếp ai vào quãng đóng cửa.</b> Một ngày công có thể gồm hai đoạn nằm ở hai
+            khung trước và sau giờ đóng cửa buổi trưa.
           </li>
         </ul>
       </Section>
@@ -122,7 +122,7 @@ export function DocsTab() {
       <Section title="2) Tỉ lệ ca tối vs ca sáng">
         <p>
           Với số giờ đã chia cho mỗi ngày, phần trăm dưới đây là <b>tỉ lệ giờ dành cho ca tối</b> (phần
-          còn lại là ca sáng). <b>Tối luôn đông hơn sáng</b> (đều trên 50%), cuối tuần và Chủ nhật đậm hơn.
+          còn lại là ca sáng). <b>Tối luôn đông hơn sáng</b> (đều trên 50%), trong đó Thứ Bảy được ưu tiên hơn Chủ nhật.
         </p>
         <WeekdayTable
           values={LATE_SHIFT_RATIOS}
@@ -131,22 +131,22 @@ export function DocsTab() {
         />
         <p className="text-slate-600">
           Ngoài ra: Teilzeit (bán thời gian) thiên về ca tối; Vollzeit (toàn thời gian) cân bằng
-          sáng/tối; Chủ nhật &amp; ngày lễ dồn mạnh vào buổi tối.
+          sáng/tối; cuối tuần và ngày lễ dồn mạnh vào buổi tối.
         </p>
       </Section>
 
       <Section title="3) Độ dài ca co theo khung giờ trong ngày">
         <p>
           Ca sáng nằm trong <b>khung đầu</b>, ca tối nằm trong <b>khung cuối</b>. Ngày có nghỉ trưa
-          (Thứ 2–5) có hai khung, ca luôn nằm trọn trong một khung. Nếu một ngày mở{" "}
+          (Thứ 2–5) có hai khung; một ngày công dài có thể được tách thành hai đoạn. Nếu một ngày mở{" "}
           <b>ngắn hơn</b> (VD nửa buổi), ca sẽ <b>tự co ngắn lại</b> cho vừa khung — kể cả nhân viên toàn
           thời gian vẫn đi làm ca ngắn hôm đó, và <b>định mức tháng vẫn được bù đủ</b> ở các ngày khác.
         </p>
         <p className="text-slate-600">
-          Độ dài ca cho phép: <b>4 đến 8 giờ, bước nửa giờ</b> (4; 4,5; 5; 5,5 … 8). Nhờ nửa giờ mà
+          Độ dài ca cho phép: <b>3 đến 10 giờ, bước nửa giờ</b> (3; 3,5; 4 … 10). Nhờ nửa giờ mà
           khung chiều 16:30–22:00 được lấp vừa khít 5,5h thay vì phí nửa tiếng.
           <br />
-          Toàn thời gian nhận ca <b>từ 6h trở lên</b>, bán thời gian nhận cả dải 4–8h. Khi khung giờ
+          Toàn thời gian ưu tiên ca <b>từ 6h trở lên</b>, bán thời gian nhận cả dải 3–10h. Khi khung giờ
           quá hẹp cho ca 6h thì toàn thời gian vẫn được xếp ca ngắn hơn để không phải nghỉ cả ngày.
         </p>
       </Section>

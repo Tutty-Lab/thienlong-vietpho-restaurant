@@ -52,6 +52,7 @@ export function updateShiftTimes(
   const pauseMinutes = changes.pauseMinutes ?? shift.pauseMinutes;
   return {
     ...shift,
+    segments: undefined,
     startMinutes,
     endMinutes,
     pauseMinutes,

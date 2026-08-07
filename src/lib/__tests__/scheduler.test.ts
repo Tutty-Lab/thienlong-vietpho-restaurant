@@ -3,8 +3,10 @@ import { generateSchedule } from "../scheduler";
 import { validateSchedule } from "../validation";
 import { maxConsecutiveRun } from "../consecutive";
 import { SAMPLE_EMPLOYEES } from "../sampleData";
-import { DEFAULT_WORK_HOURS } from "../workHours";
+import { DEFAULT_WORK_HOURS, resolveDay } from "../workHours";
+import { holidaysOf } from "../holidays";
 import { calculatePause } from "../time";
+import { DAY_WEIGHTS, LATE_SHIFT_RATIOS, datesOfMonth } from "../demand";
 
 describe("Scheduler – August 2026 Beispieldaten", () => {
   const shifts = generateSchedule({
@@ -33,7 +35,12 @@ describe("Scheduler – August 2026 Beispieldaten", () => {
   });
 
   it("hält alle harten Regeln ein (Validierung grün)", () => {
-    const result = validateSchedule(SAMPLE_EMPLOYEES, shifts);
+    const result = validateSchedule(SAMPLE_EMPLOYEES, shifts, {
+      year: 2026,
+      month: 8,
+      workHours: DEFAULT_WORK_HOURS,
+      holidayState: "BW",
+    });
     expect(result.errors).toEqual([]);
     expect(result.valid).toBe(true);
   });
@@ -51,6 +58,16 @@ describe("Scheduler – August 2026 Beispieldaten", () => {
     for (const emp of SAMPLE_EMPLOYEES) {
       const dates = shifts.filter((s) => s.employeeId === emp.id).map((s) => s.date);
       expect(maxConsecutiveRun(dates)).toBeLessThanOrEqual(6);
+    }
+  });
+
+  it("gibt jedem Mitarbeiter mindestens vier freie Tage im Monat", () => {
+    const daysInMonth = datesOfMonth(2026, 8).length;
+    for (const emp of SAMPLE_EMPLOYEES) {
+      const workedDays = new Set(
+        shifts.filter((shift) => shift.employeeId === emp.id).map((shift) => shift.date),
+      ).size;
+      expect(daysInMonth - workedDays, emp.name).toBeGreaterThanOrEqual(4);
     }
   });
 
@@ -88,6 +105,58 @@ describe("Scheduler – August 2026 Beispieldaten", () => {
     const sat = byDate.get("2026-08-01") ?? 0;
     const mon = byDate.get("2026-08-03") ?? 0;
     expect(sat).toBeGreaterThan(mon);
+  });
+
+  it("plant an jedem offenen Tag mindestens zwei Mitarbeiter 30 Minuten vor Öffnung", () => {
+    const holidays = holidaysOf(2026, "BW");
+    for (const date of datesOfMonth(2026, 8)) {
+      const day = resolveDay(DEFAULT_WORK_HOURS, date, holidays);
+      const openingStart = day.blocks[0].startMinutes;
+      const openers = shifts.filter((shift) => {
+        if (shift.date !== date) return false;
+        const firstSegment = shift.segments?.[0];
+        return (firstSegment?.startMinutes ?? shift.startMinutes) === openingStart;
+      });
+
+      expect(openers.length, date).toBeGreaterThanOrEqual(2);
+    }
+
+    expect(DEFAULT_WORK_HOURS.perWeekday.monday[0].startMinutes).toBe(10 * 60 + 30);
+    expect(DEFAULT_WORK_HOURS.perWeekday.saturday[0].startMinutes).toBe(11 * 60 + 30);
+  });
+
+  it("priorisiert Samstag stärker als Sonntag", () => {
+    expect(DAY_WEIGHTS.saturday).toBeGreaterThan(DAY_WEIGHTS.sunday);
+    expect(LATE_SHIFT_RATIOS.saturday).toBeGreaterThan(LATE_SHIFT_RATIOS.sunday);
+  });
+
+  it("meldet fehlende Öffnungsbesetzung als Validierungsfehler", () => {
+    const date = datesOfMonth(2026, 8).find((candidate) => {
+      const openingStart = resolveDay(DEFAULT_WORK_HOURS, candidate, holidaysOf(2026, "BW"))
+        .blocks[0].startMinutes;
+      return shifts.filter(
+        (shift) =>
+          shift.date === candidate &&
+          (shift.segments?.[0]?.startMinutes ?? shift.startMinutes) === openingStart,
+      ).length === 2;
+    })!;
+    const openingStart = resolveDay(DEFAULT_WORK_HOURS, date, holidaysOf(2026, "BW"))
+      .blocks[0].startMinutes;
+    const opener = shifts.find(
+      (shift) =>
+        shift.date === date &&
+        (shift.segments?.[0]?.startMinutes ?? shift.startMinutes) === openingStart,
+    )!;
+    const invalid = shifts.filter((shift) => shift.id !== opener.id);
+
+    const result = validateSchedule(SAMPLE_EMPLOYEES, invalid, {
+      year: 2026,
+      month: 8,
+      workHours: DEFAULT_WORK_HOURS,
+      holidayState: "BW",
+    });
+
+    expect(result.errors.some((error) => error.message.includes("2 nhân viên mở cửa"))).toBe(true);
   });
 });
 

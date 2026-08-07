@@ -281,9 +281,12 @@ function makeShift(
   const type = chooseTemplateType(state, isoDate, employee.employmentType);
   const blocks = state.dayOf(isoDate).blocks;
 
-  // Passt die Schicht nicht in einen einzelnen Block, wird sie geteilt:
-  // ein Stück mittags, eines abends. Ohne gerechnete Pause.
-  if (!fitsSingleBlock(paidMinutes, blocks)) {
+  const presence = presenceFromPaid(paidMinutes);
+  const fitsFirstBlock = blocks[0].endMinutes - blocks[0].startMinutes >= presence;
+
+  // Early shifts that do not fit in the opening block are split even if they
+  // would fit in the evening. This keeps them anchored to opening time.
+  if (!fitsSingleBlock(paidMinutes, blocks) || (type === "EARLY" && !fitsFirstBlock)) {
     const split = buildSplitShift(paidMinutes, type, blocks);
     if (split) {
       return {
@@ -553,10 +556,12 @@ function retypeShift(state: SchedulerState, shift: Shift, type: TemplateType): v
   // Ein geteilter Dienst bleibt geteilt – nur das Abendstück wandert an den
   // Anfang oder ans Ende des Abendblocks. Wird das übersehen, bekommt die
   // Schicht plötzlich eine gerechnete Pause und der Plan wird ungültig.
-  const split =
-    shift.segments && shift.segments.length > 1
-      ? buildSplitShift(shift.paidMinutes, type, blocks)
-      : null;
+  const presence = presenceFromPaid(shift.paidMinutes);
+  const fitsFirstBlock = blocks[0].endMinutes - blocks[0].startMinutes >= presence;
+  const needsSplit =
+    blocks.length > 1 &&
+    (Boolean(shift.segments && shift.segments.length > 1) || (type === "EARLY" && !fitsFirstBlock));
+  const split = needsSplit ? buildSplitShift(shift.paidMinutes, type, blocks) : null;
   const tpl = split
     ? {
         startMinutes: split.segments[0].startMinutes,
@@ -619,17 +624,27 @@ function balanceShiftTypes(state: SchedulerState): void {
     const shortestOf = (list: Shift[]) =>
       list.length === 0 ? null : list.reduce((a, b) => (a.paidMinutes <= b.paidMinutes ? a : b));
 
-    let flipped: Shift | null = null;
-    if (!onDay.some((s) => s.startMinutes === day.blocks[0].startMinutes)) {
-      const victim = shortestOf(onDay.filter((s) => s.shiftType === "LATE"));
-      if (victim) {
-        retypeShift(state, victim, "EARLY");
-        flipped = victim;
-      }
+    const startsAtOpening = (shift: Shift) =>
+      (shift.segments?.[0]?.startMinutes ?? shift.startMinutes) === day.blocks[0].startMinutes;
+
+    const flipped: Shift[] = [];
+    while (onDay.filter(startsAtOpening).length < Math.min(2, onDay.length)) {
+      const victim = shortestOf(
+        onDay.filter((s) => !startsAtOpening(s) && !flipped.includes(s)),
+      );
+      if (!victim) break;
+      retypeShift(state, victim, "EARLY");
+      flipped.push(victim);
     }
     if (!onDay.some((s) => s.endMinutes === day.blocks[day.blocks.length - 1].endMinutes)) {
+      const openerCount = onDay.filter(startsAtOpening).length;
       const victim = shortestOf(
-        onDay.filter((s) => s.shiftType === "EARLY" && s !== flipped),
+        onDay.filter(
+          (s) =>
+            s.shiftType === "EARLY" &&
+            !flipped.includes(s) &&
+            (!startsAtOpening(s) || openerCount > 2),
+        ),
       );
       if (victim) retypeShift(state, victim, "LATE");
     }

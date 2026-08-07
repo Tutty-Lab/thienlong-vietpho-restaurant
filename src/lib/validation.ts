@@ -5,7 +5,9 @@
 import { AZUBI_HOURS_OUT_OF_TERM, type Employee, type Shift } from "../types";
 import { calculatePause } from "./time";
 import { maxConsecutiveRun } from "./consecutive";
-import { parseIsoDate } from "./demand";
+import { datesOfMonth, parseIsoDate } from "./demand";
+import { holidaysOf, type HolidayState } from "./holidays";
+import { resolveDay, type OverrideMap, type WorkHoursConfig } from "./workHours";
 
 export type ValidationError = {
   employeeId?: string;
@@ -28,6 +30,14 @@ export type ValidationResult = {
   summaries: EmployeeSummary[];
 };
 
+export type ValidationContext = {
+  year: number;
+  month: number;
+  workHours: WorkHoursConfig;
+  holidayState: HolidayState;
+  overrides?: OverrideMap;
+};
+
 const MAX_PAID_MINUTES = 10 * 60; // ArbZG §3: bis 10 h zulässig
 const MAX_CONSECUTIVE_DAYS = 6;
 
@@ -40,6 +50,7 @@ function weekKeyOf(isoDate: string): string {
 export function validateSchedule(
   employees: Employee[],
   shifts: Shift[],
+  context?: ValidationContext,
 ): ValidationResult {
   const errors: ValidationError[] = [];
   const shiftsByEmployee = new Map<string, Shift[]>();
@@ -151,6 +162,25 @@ export function validateSchedule(
       maxConsecutiveDays: maxRun,
       shiftCount: empShifts.length,
     });
+  }
+
+  if (context && shifts.length > 0) {
+    const holidays = holidaysOf(context.year, context.holidayState);
+    for (const date of datesOfMonth(context.year, context.month)) {
+      const day = resolveDay(context.workHours, date, holidays, context.overrides);
+      if (day.closed) continue;
+      const openingStart = day.blocks[0].startMinutes;
+      const openerCount = shifts.filter((shift) => {
+        if (shift.date !== date) return false;
+        return (shift.segments?.[0]?.startMinutes ?? shift.startMinutes) === openingStart;
+      }).length;
+      if (openerCount < 2) {
+        errors.push({
+          date,
+          message: `Ngày ${date}: cần ít nhất 2 nhân viên mở cửa trước 30 phút (hiện có ${openerCount}).`,
+        });
+      }
+    }
   }
 
   return { valid: errors.length === 0, errors, summaries };

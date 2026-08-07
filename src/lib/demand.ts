@@ -40,8 +40,8 @@ export const LATE_SHIFT_RATIOS: Record<WeekdayKey, number> = {
   wednesday: 0.67,
   thursday: 0.67,
   friday: 0.72,
-  saturday: 0.74,
-  sunday: 0.85,
+  saturday: 0.85,
+  sunday: 0.74,
 };
 
 /** date-fns getDay(): 0=So ... 6=Sa  ->  WeekdayKey. */

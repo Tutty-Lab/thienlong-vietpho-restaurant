@@ -23,6 +23,7 @@ import {
   defaultAzubiConfig,
   withAutomaticAzubiTarget,
 } from "../lib/azubi";
+import { checkScheduleReadiness } from "../lib/readiness";
 
 function emptySchedule(store: StoreConfig): Schedule {
   const now = new Date();
@@ -183,8 +184,18 @@ export function useSchedule() {
   }, [schedule.year, schedule.month, schedule.employees]);
 
   const validation: ValidationResult = useMemo(
-    () => validateSchedule(schedule.employees, schedule.shifts),
-    [schedule.employees, schedule.shifts],
+    () => validateSchedule(schedule.employees, schedule.shifts, {
+      year: schedule.year,
+      month: schedule.month,
+      workHours: schedule.workHours,
+      holidayState: schedule.holidayState,
+      overrides: overridesToMap(schedule.dateOverrides),
+    }),
+    [schedule],
+  );
+  const readiness = useMemo(
+    () => checkScheduleReadiness(schedule.employees),
+    [schedule.employees],
   );
 
   // ----- Firma / Monat / Öffnungszeiten -----
@@ -235,6 +246,10 @@ export function useSchedule() {
   // ----- Generierung -----
   const generate = useCallback(() => {
     setGenError(null);
+    if (!readiness.ready) {
+      setGenError(readiness.issues.join(" "));
+      return;
+    }
     try {
       const shifts = generateSchedule({
         year: schedule.year,
@@ -255,6 +270,7 @@ export function useSchedule() {
     schedule.workHours,
     schedule.dateOverrides,
     schedule.employees,
+    readiness,
   ]);
 
   const resetToOriginal = useCallback(() => {
@@ -353,6 +369,7 @@ export function useSchedule() {
     schedule,
     originalShifts,
     validation,
+    readiness,
     genError,
     hasOriginal: originalShifts.length > 0,
     updateMeta,

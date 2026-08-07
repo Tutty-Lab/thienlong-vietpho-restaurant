@@ -143,11 +143,17 @@ export function buildSplitShift(
   if (lunchPart < 60 || eveningPart < 60) return null;
   if (lunchPart > lunchCap || eveningPart > eveningCap) return null;
 
-  // Mittags immer bis zur Schließung arbeiten (wie im handgeschriebenen Plan).
-  const lunchSeg = {
-    startMinutes: lunch.endMinutes - lunchPart,
-    endMinutes: lunch.endMinutes,
-  };
+  // An early split shift must actually open the restaurant. A late split shift
+  // stays anchored at lunch closing, matching the handwritten schedules.
+  const lunchSeg = type === "EARLY"
+    ? {
+        startMinutes: lunch.startMinutes,
+        endMinutes: lunch.startMinutes + lunchPart,
+      }
+    : {
+        startMinutes: lunch.endMinutes - lunchPart,
+        endMinutes: lunch.endMinutes,
+      };
   const eveningSeg =
     type === "EARLY"
       ? { startMinutes: evening.startMinutes, endMinutes: evening.startMinutes + eveningPart }

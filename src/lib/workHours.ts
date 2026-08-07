@@ -41,13 +41,11 @@ export type ResolvedDay = { closed: boolean; blocks: DayBlocks };
 
 const w = (start: number, end: number): DayWindow => ({ startMinutes: start, endMinutes: end });
 
-// Öffnungszeiten der beiden Filialen in Heidenheim:
-//   Mo–Do  11:00–15:00 und 16:30–22:00 (mittags geschlossen)
-//   Fr     11:00–22:00 durchgehend
-//   Sa/So  12:00–22:00 durchgehend
-const SPLIT_DAY: DayBlocks = [w(11 * 60, 15 * 60), w(16 * 60 + 30, 22 * 60)];
-const FRIDAY: DayBlocks = [w(11 * 60, 22 * 60)];
-const WEEKEND: DayBlocks = [w(12 * 60, 22 * 60)];
+// Staff windows start 30 minutes before the published opening time so the
+// opening team can prepare the restaurant before guests arrive.
+const SPLIT_DAY: DayBlocks = [w(10 * 60 + 30, 15 * 60), w(16 * 60 + 30, 22 * 60)];
+const FRIDAY: DayBlocks = [w(10 * 60 + 30, 22 * 60)];
+const WEEKEND: DayBlocks = [w(11 * 60 + 30, 22 * 60)];
 
 const clone = (blocks: DayBlocks): DayBlocks => blocks.map((b) => ({ ...b }));
 
@@ -58,7 +56,7 @@ const clone = (blocks: DayBlocks): DayBlocks => blocks.map((b) => ({ ...b }));
  * Ohne das würde ein alter Speicherstand die neuen Zeiten für immer verdecken –
  * genau das war passiert (Mo–Do ohne Mittagsschließung, Sa ab 11:00 statt 12:00).
  */
-export const WORK_HOURS_VERSION = 2;
+export const WORK_HOURS_VERSION = 3;
 
 export const DEFAULT_WORK_HOURS: WorkHoursConfig = {
   perWeekday: {

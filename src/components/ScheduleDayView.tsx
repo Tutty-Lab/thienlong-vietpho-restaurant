@@ -12,6 +12,7 @@ import { minutesToShortHours, minutesToTime } from "../lib/time";
 import { isoLabel } from "../lib/shiftOps";
 import { holidayNames as holidayNamesOf } from "../lib/holidays";
 import { format } from "date-fns";
+import { ShiftTimes } from "./ShiftTimes";
 
 /** Chế độ xem theo từng ngày – tối ưu cho điện thoại (không cuộn ngang). */
 export function ScheduleDayView({
@@ -163,11 +164,10 @@ export function ScheduleDayView({
                   </div>
                 </div>
                 <div className="text-right shrink-0">
-                  <div className="font-semibold">
-                    {minutesToTime(s.startMinutes)}–{minutesToTime(s.endMinutes)}
-                  </div>
+                  <ShiftTimes shift={s} />
                   <div className="text-xs opacity-80">
-                    {minutesToShortHours(s.paidMinutes)} · Nghỉ {s.pauseMinutes}
+                    {minutesToShortHours(s.paidMinutes)}
+                    {s.segments?.length ? " · Ca tách đôi" : ` · Nghỉ ${s.pauseMinutes}`}
                   </div>
                 </div>
               </button>

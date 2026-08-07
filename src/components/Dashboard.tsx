@@ -13,7 +13,7 @@ function Stat({ label, value, accent }: { label: string; value: string; accent?:
 }
 
 export function Dashboard({ store }: { store: UseScheduleReturn }) {
-  const { schedule, validation } = store;
+  const { schedule, validation, readiness } = store;
   const vz = schedule.employees.filter((e) => e.employmentType === "VOLLZEIT").length;
   const tz = schedule.employees.filter((e) => e.employmentType === "TEILZEIT").length;
   const az = schedule.employees.filter((e) => e.employmentType === "AZUBI").length;
@@ -21,14 +21,17 @@ export function Dashboard({ store }: { store: UseScheduleReturn }) {
   const plannedMin = schedule.shifts.reduce((s, x) => s + x.paidMinutes, 0);
   const notGenerated = schedule.shifts.length === 0;
 
-  // Trước khi tạo lịch: trạng thái trung tính (chưa xếp giờ nào nên chưa thể "lỗi").
   const statusValue = notGenerated
-    ? "Chưa tạo lịch"
+    ? readiness.ready
+      ? "Sẵn sàng"
+      : "Chưa sẵn sàng"
     : validation.valid
       ? "Hợp lệ"
       : `${validation.errors.length} lỗi`;
   const statusAccent = notGenerated
-    ? "text-slate-500"
+    ? readiness.ready
+      ? "text-emerald-600"
+      : "text-amber-600"
     : validation.valid
       ? "text-emerald-600"
       : "text-rose-600";
@@ -44,9 +47,17 @@ export function Dashboard({ store }: { store: UseScheduleReturn }) {
         <Stat label="Tổng giờ đã xếp" value={`${minutesToDecimalHours(plannedMin)} h`} />
         <Stat label="Trạng thái kiểm tra" value={statusValue} accent={statusAccent} />
       </div>
-      {notGenerated && schedule.employees.length > 0 && (
-        <div className="mt-2 rounded bg-sky-50 border border-sky-200 text-sky-800 text-sm px-3 py-2">
-          Chưa có lịch. Sang tab „Lịch làm việc" và bấm „Tạo lịch làm việc".
+      {notGenerated && readiness.ready && (
+        <div className="mt-2 rounded bg-emerald-50 border border-emerald-200 text-emerald-800 text-sm px-3 py-2">
+          Cấu hình đã đầy đủ. Có thể sang tab “Lịch làm việc” để tạo lịch.
+        </div>
+      )}
+      {notGenerated && !readiness.ready && (
+        <div className="mt-2 rounded bg-amber-50 border border-amber-200 text-amber-800 text-sm px-3 py-2">
+          <div className="font-medium">Cần hoàn tất cấu hình trước khi tạo lịch:</div>
+          <ul className="mt-1 list-disc pl-5">
+            {readiness.issues.map((issue) => <li key={issue}>{issue}</li>)}
+          </ul>
         </div>
       )}
       {validation.valid && schedule.shifts.length > 0 && (

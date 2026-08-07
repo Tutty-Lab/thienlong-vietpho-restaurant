@@ -7,11 +7,12 @@ import {
   WEEKDAY_SHORT_VI,
   weekdayKeyOf,
 } from "../lib/demand";
-import { minutesToShortHours, minutesToTime } from "../lib/time";
+import { minutesToShortHours } from "../lib/time";
 import { signedHours } from "../lib/dateFormat";
 import { monthLabel } from "../lib/shiftOps";
 import { ShiftCellEditor } from "./ShiftCellEditor";
 import { ScheduleDayView } from "./ScheduleDayView";
+import { ShiftTimes } from "./ShiftTimes";
 
 function isWeekendKey(iso: string): boolean {
   const k = weekdayKeyOf(parseIsoDate(iso));
@@ -25,7 +26,7 @@ function cellClass(shift: Shift | undefined): string {
 }
 
 export function ScheduleTab({ store }: { store: UseScheduleReturn }) {
-  const { schedule, validation, generate, genError } = store;
+  const { schedule, validation, readiness, generate, genError } = store;
   const [selected, setSelected] = useState<{ employeeId: string; date: string } | null>(null);
   // Mặc định: điện thoại -> xem theo ngày, màn lớn -> bảng tháng.
   const [view, setView] = useState<"grid" | "day">(() =>
@@ -77,13 +78,19 @@ export function ScheduleTab({ store }: { store: UseScheduleReturn }) {
       <div className="flex flex-wrap items-center gap-2 mb-3">
         <button
           onClick={generate}
-          disabled={!hasEmployees}
+          disabled={!readiness.ready}
           className="rounded bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 active:bg-slate-800 disabled:opacity-40"
         >
           Tạo lịch làm việc
         </button>
         <span className="ml-auto text-sm text-slate-500">{monthLabel(schedule.year, schedule.month)}</span>
       </div>
+
+      {!readiness.ready && (
+        <div className="mb-3 rounded bg-amber-50 border border-amber-200 text-amber-800 text-sm px-3 py-2">
+          {readiness.issues.join(" ")}
+        </div>
+      )}
 
       {/* Chuyển chế độ xem */}
       {hasEmployees && (
@@ -229,11 +236,10 @@ export function ScheduleTab({ store }: { store: UseScheduleReturn }) {
                         >
                           {shift ? (
                             <div className="leading-tight">
-                              <div className="font-medium">
-                                {minutesToTime(shift.startMinutes)}–{minutesToTime(shift.endMinutes)}
-                              </div>
+                              <ShiftTimes shift={shift} />
                               <div className="text-[10px] opacity-80">
-                                {minutesToShortHours(shift.paidMinutes)} · Nghỉ {shift.pauseMinutes}
+                                {minutesToShortHours(shift.paidMinutes)}
+                                {shift.segments?.length ? " · Ca tách đôi" : ` · Nghỉ ${shift.pauseMinutes}`}
                               </div>
                             </div>
                           ) : (
