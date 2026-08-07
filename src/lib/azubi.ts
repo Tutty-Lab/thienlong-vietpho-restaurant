@@ -225,7 +225,7 @@ export function azubiTimesheetMode(
   return azubiMonthMode(cfg, year, month) === "work" ? "work" : "mixed";
 }
 
-/** 172 h und mehr werden nur markiert, nie gekappt oder deaktiviert. */
+/** 174 h und mehr werden nur markiert, nie gekappt oder deaktiviert. */
 export function azubiMonthlyHoursNeedWarning(
   cfg: AzubiConfig | undefined,
   year?: number,

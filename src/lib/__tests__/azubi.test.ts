@@ -261,18 +261,18 @@ describe("Azubi có kỳ học theo khoảng ngày", () => {
 });
 
 describe("Azubi ngoài kỳ học", () => {
-  it("cho chủ đặt trực tiếp giờ theo tháng và không cắt ở 172h", () => {
+  it("cho chủ đặt trực tiếp giờ theo tháng và cảnh báo từ 174h mà không cắt giờ", () => {
     const below: AzubiConfig = {
       inSchoolTerm: false,
       schoolDays: [],
-      monthlyHoursOutOfTerm: 171.5,
+      monthlyHoursOutOfTerm: 173.5,
     };
     const warning: AzubiConfig = {
       ...below,
       monthlyHoursOutOfTerm: AZUBI_MONTHLY_WARNING_HOURS,
     };
 
-    expect(azubiMonthlyHoursOutOfTerm(below)).toBe(171.5);
+    expect(azubiMonthlyHoursOutOfTerm(below)).toBe(173.5);
     expect(azubiMonthlyHoursNeedWarning(below)).toBe(false);
     expect(azubiMonthlyHoursNeedWarning(warning)).toBe(true);
     expect(azubiMonthlyMinutes(warning, 2026, 8)).toBe(

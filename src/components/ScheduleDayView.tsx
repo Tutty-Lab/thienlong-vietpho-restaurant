@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, useEffect } from "react";
+import { useMemo, useRef, useEffect } from "react";
 import type { UseScheduleReturn } from "../hooks/useSchedule";
 import type { Shift } from "../types";
 import {
@@ -11,16 +11,19 @@ import {
 import { minutesToShortHours, minutesToTime } from "../lib/time";
 import { isoLabel } from "../lib/shiftOps";
 import { holidayNames as holidayNamesOf } from "../lib/holidays";
-import { format } from "date-fns";
 import { ShiftTimes } from "./ShiftTimes";
 
 /** Chế độ xem theo từng ngày – tối ưu cho điện thoại (không cuộn ngang). */
 export function ScheduleDayView({
   store,
   onEdit,
+  selectedDate,
+  onSelectedDateChange,
 }: {
   store: UseScheduleReturn;
   onEdit: (employeeId: string, date: string) => void;
+  selectedDate: string;
+  onSelectedDateChange: (date: string) => void;
 }) {
   const { schedule } = store;
   const dates = useMemo(
@@ -33,25 +36,16 @@ export function ScheduleDayView({
     [schedule.dateOverrides],
   );
 
-  const today = format(new Date(), "yyyy-MM-dd");
-  const [selected, setSelected] = useState<string>(() =>
-    dates.includes(today) ? today : dates[0],
-  );
-  // Nếu đổi tháng/năm mà ngày chọn không còn trong danh sách -> về ngày đầu.
-  useEffect(() => {
-    if (!dates.includes(selected)) setSelected(dates[0]);
-  }, [dates, selected]);
-
   // Tự cuộn chip ngày đang chọn vào tầm nhìn.
   const stripRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    const el = stripRef.current?.querySelector<HTMLElement>(`[data-date="${selected}"]`);
+    const el = stripRef.current?.querySelector<HTMLElement>(`[data-date="${selectedDate}"]`);
     el?.scrollIntoView({ inline: "center", block: "nearest" });
-  }, [selected]);
+  }, [selectedDate]);
 
   const shiftsOfDay = useMemo(
-    () => schedule.shifts.filter((s) => s.date === selected),
-    [schedule.shifts, selected],
+    () => schedule.shifts.filter((s) => s.date === selectedDate),
+    [schedule.shifts, selectedDate],
   );
   const shiftByEmp = useMemo(
     () => new Map(shiftsOfDay.map((s) => [s.employeeId, s] as const)),
@@ -65,14 +59,14 @@ export function ScheduleDayView({
   const earlyCount = shiftsOfDay.filter((s) => s.shiftType === "EARLY").length;
   const lateCount = shiftsOfDay.length - earlyCount;
 
-  const ov = overridesByDate.get(selected);
-  const holiday = holidayNames.get(selected);
-  const weekdayKey = weekdayKeyOf(parseIsoDate(selected));
+  const ov = overridesByDate.get(selectedDate);
+  const holiday = holidayNames.get(selectedDate);
+  const weekdayKey = weekdayKeyOf(parseIsoDate(selectedDate));
   const isWeekend = weekdayKey === "saturday" || weekdayKey === "sunday";
 
   function chipClass(iso: string): string {
     const o = overridesByDate.get(iso);
-    const isSel = iso === selected;
+    const isSel = iso === selectedDate;
     if (isSel) return "bg-slate-900 text-white border-slate-900";
     if (o?.closed) return "bg-rose-50 text-rose-700 border-rose-200";
     if (o) return "bg-sky-50 text-sky-700 border-sky-200";
@@ -92,7 +86,7 @@ export function ScheduleDayView({
             <button
               key={iso}
               data-date={iso}
-              onClick={() => setSelected(iso)}
+              onClick={() => onSelectedDateChange(iso)}
               className={`shrink-0 w-12 rounded-lg border py-1.5 text-center ${chipClass(iso)}`}
             >
               <div className="text-sm font-semibold leading-tight">{d}</div>
@@ -105,7 +99,7 @@ export function ScheduleDayView({
       {/* Đầu ngày + badge */}
       <div className="mt-2 flex flex-wrap items-center gap-2">
         <h3 className="text-base font-semibold text-slate-900">
-          {WEEKDAY_LABELS_VI[weekdayKey]}, {isoLabel(selected)}
+          {WEEKDAY_LABELS_VI[weekdayKey]}, {isoLabel(selectedDate)}
         </h3>
         {ov?.closed && (
           <span className="rounded-full bg-rose-100 text-rose-700 text-xs px-2 py-0.5 font-medium">
@@ -147,7 +141,7 @@ export function ScheduleDayView({
             return (
               <button
                 key={emp.id}
-                onClick={() => onEdit(emp.id, selected)}
+                onClick={() => onEdit(emp.id, selectedDate)}
                 className={`w-full flex items-center gap-3 rounded-lg border p-3 text-left ${
                   isEarly ? "shift-early" : "shift-late"
                 } ${!s.generated ? "shift-custom" : ""}`}
@@ -184,7 +178,7 @@ export function ScheduleDayView({
             {free.map((emp) => (
               <button
                 key={emp.id}
-                onClick={() => onEdit(emp.id, selected)}
+                onClick={() => onEdit(emp.id, selectedDate)}
                 className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-sm text-slate-600 hover:border-slate-300"
               >
                 {emp.name}

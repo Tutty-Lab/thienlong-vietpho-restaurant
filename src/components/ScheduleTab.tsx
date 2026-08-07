@@ -1,4 +1,5 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import type { UseScheduleReturn } from "../hooks/useSchedule";
 import type { Shift } from "../types";
 import {
@@ -9,7 +10,9 @@ import {
 } from "../lib/demand";
 import { minutesToShortHours } from "../lib/time";
 import { signedHours } from "../lib/dateFormat";
-import { monthLabel } from "../lib/shiftOps";
+import { isoLabel, monthLabel } from "../lib/shiftOps";
+import { elementsToPdf, safeFileName } from "../lib/pdf";
+import { DailySchedulePage } from "./DailySchedulePage";
 import { ShiftCellEditor } from "./ShiftCellEditor";
 import { ScheduleDayView } from "./ScheduleDayView";
 import { ShiftTimes } from "./ShiftTimes";
@@ -25,18 +28,64 @@ function cellClass(shift: Shift | undefined): string {
   return `${base} ${!shift.generated ? "shift-custom" : ""}`;
 }
 
+function localIsoDate(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
 export function ScheduleTab({ store }: { store: UseScheduleReturn }) {
   const { schedule, validation, readiness, generate, genError } = store;
+  const dates = useMemo(
+    () => datesOfMonth(schedule.year, schedule.month),
+    [schedule.year, schedule.month],
+  );
   const [selected, setSelected] = useState<{ employeeId: string; date: string } | null>(null);
+  const [selectedDate, setSelectedDate] = useState(() => {
+    const today = localIsoDate(new Date());
+    return dates.includes(today) ? today : dates[0];
+  });
+  const [printDate, setPrintDate] = useState<string | null>(null);
+  const [pdfDate, setPdfDate] = useState<string | null>(null);
+  const [pdfBusy, setPdfBusy] = useState(false);
+  const pdfStage = useRef<HTMLDivElement>(null);
   // Mặc định: điện thoại -> xem theo ngày, màn lớn -> bảng tháng.
   const [view, setView] = useState<"grid" | "day">(() =>
     typeof window !== "undefined" && window.matchMedia("(max-width: 640px)").matches ? "day" : "grid",
   );
 
-  const dates = useMemo(
-    () => datesOfMonth(schedule.year, schedule.month),
-    [schedule.year, schedule.month],
-  );
+  useEffect(() => {
+    if (!dates.includes(selectedDate)) {
+      const today = localIsoDate(new Date());
+      setSelectedDate(dates.includes(today) ? today : dates[0]);
+    }
+  }, [dates, selectedDate]);
+
+  function printSelectedDate() {
+    flushSync(() => setPrintDate(selectedDate));
+    window.print();
+  }
+
+  async function exportSelectedDatePdf() {
+    if (pdfBusy) return;
+    setPdfBusy(true);
+    flushSync(() => setPdfDate(selectedDate));
+    try {
+      const pages = Array.from(
+        pdfStage.current?.querySelectorAll<HTMLElement>(".daily-schedule-page") ?? [],
+      );
+      await elementsToPdf(
+        pages,
+        `Tagesdienstplan_${safeFileName(schedule.companyName || "Betrieb")}_${selectedDate}.pdf`,
+      );
+    } catch (err) {
+      alert(`Không tạo được PDF: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setPdfDate(null);
+      setPdfBusy(false);
+    }
+  }
 
   // Tra nhanh: employeeId#date -> Shift
   const shiftMap = useMemo(() => {
@@ -73,7 +122,8 @@ export function ScheduleTab({ store }: { store: UseScheduleReturn }) {
   const hasEmployees = schedule.employees.length > 0;
 
   return (
-    <section>
+    <>
+      <section className="no-print">
       {/* Thanh thao tác */}
       <div className="flex flex-wrap items-center gap-2 mb-3">
         <button
@@ -89,6 +139,42 @@ export function ScheduleTab({ store }: { store: UseScheduleReturn }) {
       {!readiness.ready && (
         <div className="mb-3 rounded bg-amber-50 border border-amber-200 text-amber-800 text-sm px-3 py-2">
           {readiness.issues.join(" ")}
+        </div>
+      )}
+
+      {hasEmployees && (
+        <div className="mb-3 flex flex-wrap items-end gap-2 rounded-lg border border-slate-200 bg-white p-3">
+          <label className="min-w-[190px] flex-1 text-sm text-slate-600">
+            <span className="mb-1 block text-xs font-medium text-slate-500">Ngày cần in / xuất</span>
+            <select
+              value={selectedDate}
+              onChange={(event) => setSelectedDate(event.target.value)}
+              className="w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800"
+            >
+              {dates.map((date) => (
+                <option key={date} value={date}>
+                  {WEEKDAY_SHORT_VI[weekdayKeyOf(parseIsoDate(date))]} · {isoLabel(date)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button
+            type="button"
+            disabled={pdfBusy}
+            onClick={() => void exportSelectedDatePdf()}
+            className="rounded bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 active:bg-slate-800 disabled:opacity-40"
+          >
+            Xuất PDF — ngày đã chọn
+          </button>
+          <button
+            type="button"
+            disabled={pdfBusy}
+            onClick={printSelectedDate}
+            className="rounded border border-slate-300 bg-white px-4 py-2 text-sm hover:bg-slate-50 disabled:opacity-40"
+          >
+            In — ngày đã chọn
+          </button>
+          {pdfBusy && <span className="self-center text-sm text-slate-500">Đang tạo PDF…</span>}
         </div>
       )}
 
@@ -155,7 +241,12 @@ export function ScheduleTab({ store }: { store: UseScheduleReturn }) {
           Vui lòng thêm nhân viên trước.
         </div>
       ) : view === "day" ? (
-        <ScheduleDayView store={store} onEdit={(employeeId, date) => setSelected({ employeeId, date })} />
+        <ScheduleDayView
+          store={store}
+          selectedDate={selectedDate}
+          onSelectedDateChange={setSelectedDate}
+          onEdit={(employeeId, date) => setSelected({ employeeId, date })}
+        />
       ) : (
         <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white -mx-3 sm:mx-0">
           <table className="border-collapse text-xs">
@@ -288,6 +379,15 @@ export function ScheduleTab({ store }: { store: UseScheduleReturn }) {
         />
       )}
     </section>
+
+      <div className="print-area">
+        {printDate && <DailySchedulePage schedule={schedule} date={printDate} />}
+      </div>
+
+      <div ref={pdfStage} aria-hidden="true" className="pdf-stage no-print">
+        {pdfDate && <DailySchedulePage schedule={schedule} date={pdfDate} />}
+      </div>
+    </>
   );
 }
 

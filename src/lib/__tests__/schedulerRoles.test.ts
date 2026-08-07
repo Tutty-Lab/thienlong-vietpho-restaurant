@@ -8,7 +8,12 @@ import { DEFAULT_WORK_HOURS } from "../workHours";
 const employees: Employee[] = Array.from({ length: 8 }, (_, index) => ({
   id: `role-${index}`,
   name: `Role ${index}`,
-  employmentType: "AZUBI",
+  employmentType:
+    index === 3 || index === 7
+      ? "AZUBI"
+      : index % 2 === 0
+        ? "VOLLZEIT"
+        : "TEILZEIT",
   targetMinutes: 120 * 60,
   workRole: (index < 5 ? "KITCHEN" : "SERVICE") as WorkRole,
 }));
@@ -18,17 +23,35 @@ function monthlyRoleGap(shifts: ReturnType<typeof generateSchedule>): number {
 
   return datesOfMonth(2026, 8).reduce((monthGap, date) => {
     const weekday = weekdayKeyOf(parseIsoDate(date));
+    const dayShifts = shifts.filter((shift) => shift.date === date);
+    const dayTotalMinutes = dayShifts.reduce((total, shift) => total + shift.paidMinutes, 0);
     return monthGap + (["KITCHEN", "SERVICE"] as const).reduce((dayGap, role) => {
-      const roleShifts = shifts.filter(
-        (shift) => shift.date === date && byId.get(shift.employeeId)?.workRole === role,
+      const roleShifts = dayShifts.filter(
+        (shift) => byId.get(shift.employeeId)?.workRole === role,
       );
-      return dayGap + demandCoverageGap(roleShifts, thienlongDemandIntervals(weekday, role));
+      return dayGap + demandCoverageGap(
+        roleShifts,
+        thienlongDemandIntervals(weekday, role, dayTotalMinutes),
+      );
     }, 0);
   }, 0);
 }
 
+function averageScheduledHours(
+  shifts: ReturnType<typeof generateSchedule>,
+  weekdays: readonly ReturnType<typeof weekdayKeyOf>[],
+): number {
+  const dates = datesOfMonth(2026, 8).filter((date) =>
+    weekdays.includes(weekdayKeyOf(parseIsoDate(date))),
+  );
+  const totalMinutes = shifts
+    .filter((shift) => dates.includes(shift.date))
+    .reduce((total, shift) => total + shift.paidMinutes, 0);
+  return totalMinutes / 60 / dates.length;
+}
+
 describe("Thienlong role-aware scheduling", () => {
-  it("reduces uncovered Kitchen and Service intervals compared with the generic scheduler", () => {
+  it("uses Kitchen and Service roles for regular employees and Azubis", () => {
     const common = {
       year: 2026,
       month: 8,
@@ -42,5 +65,19 @@ describe("Thienlong role-aware scheduling", () => {
     const thienlong = generateSchedule({ ...common, storeId: "thienlong" });
 
     expect(monthlyRoleGap(thienlong)).toBeLessThan(monthlyRoleGap(generic));
+
+    const quietDayAverage = averageScheduledHours(thienlong, [
+      "monday",
+      "tuesday",
+      "wednesday",
+      "thursday",
+    ]);
+    const sundayAverage = averageScheduledHours(thienlong, ["sunday"]);
+    const fridayAverage = averageScheduledHours(thienlong, ["friday"]);
+    const saturdayAverage = averageScheduledHours(thienlong, ["saturday"]);
+
+    expect(sundayAverage).toBeGreaterThan(quietDayAverage);
+    expect(fridayAverage).toBeGreaterThan(sundayAverage);
+    expect(saturdayAverage).toBeGreaterThan(sundayAverage);
   });
 });

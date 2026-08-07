@@ -8,7 +8,7 @@ import type { HolidayState } from "./lib/holidays";
 
 export type EmploymentType = "VOLLZEIT" | "TEILZEIT" | "AZUBI";
 
-/** Einsatzbereich im Restaurant. Vorerst wird er bei Thienlong-Azubis gepflegt. */
+/** Fester Einsatzbereich einer Thienlong-Mitarbeiterin bzw. eines Mitarbeiters. */
 export type WorkRole = "KITCHEN" | "SERVICE";
 
 /** Wochentag-Schlüssel (Duplikat von lib/demand, um Zyklen zu vermeiden). */
@@ -46,7 +46,7 @@ export const AZUBI_HOURS_IN_TERM = 0;
 /** Woechentliche Planungsgrenze ausserhalb der Schulzeit. */
 export const AZUBI_HOURS_OUT_OF_TERM = 38.5;
 /** Ab diesem Monatssoll wird gewarnt, die Eingabe bleibt aber wirksam. */
-export const AZUBI_MONTHLY_WARNING_HOURS = 172;
+export const AZUBI_MONTHLY_WARNING_HOURS = 174;
 
 export type ShiftType = "EARLY" | "LATE" | "CUSTOM";
 

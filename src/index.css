@@ -52,7 +52,7 @@ body {
   pointer-events: none;
 }
 
-/* ===================== Druck: Stundenzettel ===================== */
+/* ===================== Druck: Stundenzettel / Tagesdienstplan ===================== */
 @media print {
   body {
     background: #fff;
@@ -69,6 +69,11 @@ body {
   }
   .stundenzettel-page:last-child {
     page-break-after: auto;
+  }
+  .daily-schedule-page {
+    min-height: auto;
+    page-break-after: auto;
+    padding: 0;
   }
   @page {
     size: A4;

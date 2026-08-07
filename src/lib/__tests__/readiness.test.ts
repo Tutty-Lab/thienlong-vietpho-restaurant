@@ -59,7 +59,7 @@ describe("Schedule readiness", () => {
     expect(result.issues).toContain("Nhân viên thường phải có định mức ít nhất 3 giờ.");
   });
 
-  it("requires every Thienlong Azubi to be assigned to Bếp or Bồi", () => {
+  it("requires every Thienlong employee to be assigned to Bếp or Bồi", () => {
     const azubi = employee({
       id: "azubi-1",
       employmentType: "AZUBI",
@@ -67,12 +67,15 @@ describe("Schedule readiness", () => {
     });
 
     expect(
-      checkScheduleReadiness([employee(), azubi], { requireAzubiWorkRole: true }).issues,
-    ).toContain("Hãy chọn vị trí Bếp hoặc Bồi cho tất cả Azubi.");
+      checkScheduleReadiness(
+        [employee({ workRole: "KITCHEN" }), azubi],
+        { requireWorkRole: true },
+      ).issues,
+    ).toContain("Hãy chọn vị trí Bếp hoặc Bồi cho tất cả nhân viên.");
     expect(
       checkScheduleReadiness(
-        [employee(), { ...azubi, workRole: "KITCHEN" }],
-        { requireAzubiWorkRole: true },
+        [employee({ workRole: "KITCHEN" }), { ...azubi, workRole: "SERVICE" }],
+        { requireWorkRole: true },
       ).ready,
     ).toBe(true);
   });

@@ -334,13 +334,14 @@ function makeShift(
 }
 
 function roleDemandOf(state: SchedulerState, employee: Employee, isoDate: string) {
-  if (!state.isThienlong || employee.employmentType !== "AZUBI" || !employee.workRole) {
+  if (!state.isThienlong || !employee.workRole) {
     return null;
   }
   return clipDemandIntervals(
     thienlongDemandIntervals(
       weekdayKeyOf(parseIsoDate(isoDate)),
       employee.workRole,
+      state.rawTarget.get(isoDate) ?? 0,
       state.holidays.has(isoDate),
     ),
     state.dayOf(isoDate).blocks,
@@ -356,7 +357,6 @@ function roleShiftsOnDate(
   return state.shifts.filter(
     (shift) =>
       shift.date === isoDate &&
-      state.employeesById.get(shift.employeeId)?.employmentType === "AZUBI" &&
       state.employeesById.get(shift.employeeId)?.workRole === employee.workRole,
   );
 }
@@ -575,7 +575,7 @@ function repairDemand(state: SchedulerState, employeesById: Map<string, Employee
     for (const shift of [...state.shifts]) {
       const employee = employeesById.get(shift.employeeId)!;
       // Moving a fixed-role Thienlong shift would undo its interval coverage.
-      if (state.isThienlong && employee.employmentType === "AZUBI" && employee.workRole) continue;
+      if (state.isThienlong && employee.workRole) continue;
       const from = shift.date;
       const worked = state.worked.get(employee.id)!;
 
@@ -683,11 +683,7 @@ function balanceShiftTypes(state: SchedulerState): void {
     const quotaCandidates = onDay.filter(
       (shift) => {
         const employee = state.employeesById.get(shift.employeeId);
-        return (
-          !state.isThienlong ||
-          employee?.employmentType !== "AZUBI" ||
-          !employee.workRole
-        );
+        return !state.isThienlong || !employee?.workRole;
       },
     );
 
@@ -718,8 +714,8 @@ function balanceShiftTypes(state: SchedulerState): void {
       return [...list].sort((a, b) => {
         const aEmployee = state.employeesById.get(a.employeeId);
         const bEmployee = state.employeesById.get(b.employeeId);
-        const aFixed = aEmployee?.employmentType === "AZUBI" && Boolean(aEmployee.workRole);
-        const bFixed = bEmployee?.employmentType === "AZUBI" && Boolean(bEmployee.workRole);
+        const aFixed = Boolean(aEmployee?.workRole);
+        const bFixed = Boolean(bEmployee?.workRole);
         if (aFixed !== bFixed) return aFixed ? 1 : -1;
         return a.paidMinutes - b.paidMinutes;
       })[0];

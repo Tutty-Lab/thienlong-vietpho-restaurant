@@ -4,7 +4,7 @@
 // ============================================================================
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { Employee, EmploymentType, Schedule, Shift } from "../types";
+import type { Employee, EmploymentType, Schedule, Shift, WorkRole } from "../types";
 import { generateSchedule } from "../lib/scheduler";
 import { validateSchedule, type ValidationResult } from "../lib/validation";
 import { clearState, loadState, saveState, type PersistedState } from "../lib/storage";
@@ -49,11 +49,7 @@ function overridesToMap(list: DateOverride[]): OverrideMap {
 }
 
 function normalizeEmployee(employee: Employee, year: number, month: number): Employee {
-  const roleScopedEmployee =
-    employee.employmentType === "AZUBI"
-      ? employee
-      : { ...employee, workRole: undefined };
-  return withAutomaticAzubiTarget(roleScopedEmployee, year, month);
+  return withAutomaticAzubiTarget(employee, year, month);
 }
 
 /** Migriert einen (evtl. alten) gespeicherten Stand auf das aktuelle Schema. */
@@ -204,7 +200,7 @@ export function useSchedule() {
   const readiness = useMemo(
     () =>
       checkScheduleReadiness(schedule.employees, {
-        requireAzubiWorkRole: storeId === "thienlong",
+        requireWorkRole: storeId === "thienlong",
       }),
     [schedule.employees, storeId],
   );
@@ -216,7 +212,12 @@ export function useSchedule() {
 
   // ----- Mitarbeiter -----
   const addEmployee = useCallback(
-    (name: string, employmentType: EmploymentType, targetHours: number) => {
+    (
+      name: string,
+      employmentType: EmploymentType,
+      targetHours: number,
+      workRole?: WorkRole,
+    ) => {
       setSchedule((s) => {
         const azubi = employmentType === "AZUBI" ? defaultAzubiConfig() : undefined;
         const emp: Employee = {
@@ -228,6 +229,7 @@ export function useSchedule() {
               ? azubiMonthlyMinutes(azubi, s.year, s.month)
               : Math.round(targetHours) * 60,
           azubi,
+          workRole,
         };
         return { ...s, employees: [...s.employees, emp] };
       });

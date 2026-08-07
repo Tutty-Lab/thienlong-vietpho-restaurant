@@ -1,6 +1,10 @@
 import { useState } from "react";
 import type { UseScheduleReturn } from "../hooks/useSchedule";
-import { AZUBI_MONTHLY_WARNING_HOURS, type EmploymentType } from "../types";
+import {
+  AZUBI_MONTHLY_WARNING_HOURS,
+  type EmploymentType,
+  type WorkRole,
+} from "../types";
 import { splitTargetHours } from "../lib/splitTargetHours";
 import {
   azubiConfigOf,
@@ -33,9 +37,11 @@ function splitInfo(targetHours: number, type: EmploymentType): { ok: boolean; te
 
 export function EmployeesTab({ store }: { store: UseScheduleReturn }) {
   const { schedule, addEmployee, updateEmployee, removeEmployee } = store;
+  const showWorkRole = store.storeId === "thienlong";
   const [name, setName] = useState("");
   const [type, setType] = useState<EmploymentType>("VOLLZEIT");
   const [hours, setHours] = useState(176);
+  const [workRole, setWorkRole] = useState<WorkRole | "">("");
   const newAzubiHours =
     azubiMonthlyMinutes(DEFAULT_AZUBI_CONFIG, schedule.year, schedule.month) / 60;
 
@@ -66,6 +72,20 @@ export function EmployeesTab({ store }: { store: UseScheduleReturn }) {
             <option value="AZUBI">Azubi (học nghề)</option>
           </select>
         </label>
+        {showWorkRole && (
+          <label className="flex flex-col sm:w-32">
+            <span className="text-xs text-slate-600 mb-1">Vị trí</span>
+            <select
+              className={`${inputClass} w-full`}
+              value={workRole}
+              onChange={(event) => setWorkRole(event.target.value as WorkRole | "")}
+            >
+              <option value="">Chọn</option>
+              <option value="KITCHEN">Bếp</option>
+              <option value="SERVICE">Bồi</option>
+            </select>
+          </label>
+        )}
         {type === "AZUBI" ? (
           <div className="flex flex-col sm:w-40" aria-live="polite">
             <span className="text-xs text-slate-600 mb-1">Giờ định mức</span>
@@ -87,11 +107,13 @@ export function EmployeesTab({ store }: { store: UseScheduleReturn }) {
           </label>
         )}
         <button
+          disabled={showWorkRole && !workRole}
           onClick={() => {
-            addEmployee(name, type, hours);
+            addEmployee(name, type, hours, workRole || undefined);
             setName("");
+            setWorkRole("");
           }}
-          className="rounded bg-slate-900 px-4 py-2.5 text-sm font-medium text-white hover:bg-slate-700 active:bg-slate-800"
+          className="rounded bg-slate-900 px-4 py-2.5 text-sm font-medium text-white hover:bg-slate-700 active:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
         >
           Thêm nhân viên
         </button>
@@ -136,7 +158,7 @@ export function EmployeesTab({ store }: { store: UseScheduleReturn }) {
             return (
               <div
                 key={emp.id}
-                className="rounded-lg border border-slate-200 p-3 flex flex-col sm:flex-row sm:items-end gap-3"
+                className="rounded-lg border border-slate-200 p-3 flex flex-col sm:flex-row sm:flex-wrap sm:items-end lg:flex-nowrap gap-3"
               >
                 <label className="flex flex-col sm:flex-1">
                   <span className="text-xs text-slate-500 mb-1 sm:hidden">Tên</span>
@@ -151,19 +173,36 @@ export function EmployeesTab({ store }: { store: UseScheduleReturn }) {
                   <select
                     className={`${inputClass} w-full`}
                     value={emp.employmentType}
-                    onChange={(e) => {
-                      const employmentType = e.target.value as EmploymentType;
+                    onChange={(e) =>
                       updateEmployee(emp.id, {
-                        employmentType,
-                        workRole: employmentType === "AZUBI" ? emp.workRole : undefined,
-                      });
-                    }}
+                        employmentType: e.target.value as EmploymentType,
+                      })
+                    }
                   >
                     <option value="VOLLZEIT">Toàn thời gian</option>
                     <option value="TEILZEIT">Bán thời gian</option>
                     <option value="AZUBI">Azubi (học nghề)</option>
                   </select>
                 </label>
+                {showWorkRole && (
+                  <label className="flex flex-col sm:w-32">
+                    <span className="text-xs text-slate-500 mb-1 sm:hidden">Vị trí</span>
+                    <select
+                      className={`${inputClass} w-full`}
+                      value={emp.workRole ?? ""}
+                      onChange={(event) =>
+                        updateEmployee(emp.id, {
+                          workRole: (event.target.value || undefined) as WorkRole | undefined,
+                        })
+                      }
+                      aria-label={`Vị trí làm việc của ${emp.name}`}
+                    >
+                      <option value="">Chọn vị trí</option>
+                      <option value="KITCHEN">Bếp</option>
+                      <option value="SERVICE">Bồi</option>
+                    </select>
+                  </label>
+                )}
                 <label className="flex flex-col sm:w-32">
                   <span className="text-xs text-slate-500 mb-1 sm:hidden">Giờ định mức</span>
                   {isAzubi ? (

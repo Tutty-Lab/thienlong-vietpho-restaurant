@@ -4,103 +4,152 @@ import type { WeekdayKey } from "./demand";
 export type RoleDemandInterval = {
   startMinutes: number;
   endMinutes: number;
-  /** Benötigte Personenminuten innerhalb des Intervalls. */
+  /** Dynamisch aus dem Tages-Soll berechnete Personenminuten. */
   personMinutes: number;
 };
 
+export type RoleDemandShareInterval = {
+  startMinutes: number;
+  endMinutes: number;
+  /** Anteil dieses Rollen-/Zeitblocks am gesamten Tages-Soll (0..1). */
+  share: number;
+};
+
+type ReferenceInterval = {
+  startMinutes: number;
+  endMinutes: number;
+  /** Nur die Ist-Stunden der Beispielwoche, niemals ein fixes Soll. */
+  personHours: number;
+};
+
+type ReferenceProfile = Record<WorkRole, readonly ReferenceInterval[]>;
+
 export const THIENLONG_REFERENCE_INVOICES = 150;
 
-const interval = (
+const referenceInterval = (
   startMinutes: number,
   endMinutes: number,
   personHours: number,
-): RoleDemandInterval => ({
+): ReferenceInterval => ({
   startMinutes,
   endMinutes,
-  personMinutes: personHours * 60,
+  personHours,
 });
 
-const WEEKDAY: Record<WorkRole, readonly RoleDemandInterval[]> = {
+const WEEKDAY: ReferenceProfile = {
   KITCHEN: [
-    interval(10 * 60 + 30, 12 * 60, 3),
-    interval(12 * 60, 14 * 60, 7),
-    interval(14 * 60, 15 * 60, 2),
-    interval(16 * 60 + 30, 18 * 60, 3),
-    interval(18 * 60, 20 * 60, 7),
-    interval(20 * 60, 22 * 60, 4),
+    referenceInterval(10 * 60 + 30, 12 * 60, 3),
+    referenceInterval(12 * 60, 14 * 60, 7),
+    referenceInterval(14 * 60, 15 * 60, 2),
+    referenceInterval(16 * 60 + 30, 18 * 60, 3),
+    referenceInterval(18 * 60, 20 * 60, 7),
+    referenceInterval(20 * 60, 22 * 60, 4),
   ],
   SERVICE: [
-    interval(10 * 60 + 30, 12 * 60, 1.5),
-    interval(12 * 60, 14 * 60, 4),
-    interval(14 * 60, 15 * 60, 1),
-    interval(16 * 60 + 30, 18 * 60, 3),
-    interval(18 * 60, 20 * 60, 4),
-    interval(20 * 60, 22 * 60, 2),
+    referenceInterval(10 * 60 + 30, 12 * 60, 1.5),
+    referenceInterval(12 * 60, 14 * 60, 4),
+    referenceInterval(14 * 60, 15 * 60, 1),
+    referenceInterval(16 * 60 + 30, 18 * 60, 3),
+    referenceInterval(18 * 60, 20 * 60, 4),
+    referenceInterval(20 * 60, 22 * 60, 2),
   ],
 };
 
-const FRIDAY: Record<WorkRole, readonly RoleDemandInterval[]> = {
+const FRIDAY: ReferenceProfile = {
   KITCHEN: [
-    interval(10 * 60 + 30, 12 * 60, 3),
-    interval(12 * 60, 21 * 60, 25),
-    interval(21 * 60, 22 * 60, 3),
+    referenceInterval(10 * 60 + 30, 12 * 60, 3),
+    referenceInterval(12 * 60, 21 * 60, 25),
+    referenceInterval(21 * 60, 22 * 60, 3),
   ],
   SERVICE: [
-    interval(10 * 60 + 30, 12 * 60, 1.5),
-    interval(12 * 60, 15 * 60, 6),
-    interval(15 * 60, 18 * 60, 3),
-    interval(18 * 60, 21 * 60, 6),
-    interval(21 * 60, 22 * 60, 1),
+    referenceInterval(10 * 60 + 30, 12 * 60, 1.5),
+    referenceInterval(12 * 60, 15 * 60, 6),
+    referenceInterval(15 * 60, 18 * 60, 3),
+    referenceInterval(18 * 60, 21 * 60, 6),
+    referenceInterval(21 * 60, 22 * 60, 1),
   ],
 };
 
-const WEEKEND: Record<WorkRole, readonly RoleDemandInterval[]> = {
+const WEEKEND: ReferenceProfile = {
   KITCHEN: [
-    interval(11 * 60 + 30, 12 * 60, 1),
-    interval(12 * 60, 21 * 60, 25),
-    interval(21 * 60, 22 * 60, 2),
+    referenceInterval(11 * 60 + 30, 12 * 60, 1),
+    referenceInterval(12 * 60, 21 * 60, 25),
+    referenceInterval(21 * 60, 22 * 60, 2),
   ],
   SERVICE: [
-    interval(10 * 60 + 30, 12 * 60, 1.5),
-    interval(12 * 60, 15 * 60, 6),
-    interval(15 * 60, 18 * 60, 3),
-    interval(18 * 60, 21 * 60, 6),
-    interval(21 * 60, 22 * 60, 1),
+    referenceInterval(10 * 60 + 30, 12 * 60, 1.5),
+    referenceInterval(12 * 60, 15 * 60, 6),
+    referenceInterval(15 * 60, 18 * 60, 3),
+    referenceInterval(18 * 60, 21 * 60, 6),
+    referenceInterval(21 * 60, 22 * 60, 1),
   ],
 };
 
-export function thienlongDemandIntervals(
+function referenceProfileOf(weekday: WeekdayKey, isHoliday: boolean): ReferenceProfile {
+  if (isHoliday || weekday === "saturday" || weekday === "sunday") return WEEKEND;
+  if (weekday === "friday") return FRIDAY;
+  return WEEKDAY;
+}
+
+function referenceTotalHours(profile: ReferenceProfile): number {
+  return (["KITCHEN", "SERVICE"] as const).reduce(
+    (total, role) =>
+      total + profile[role].reduce((roleTotal, item) => roleTotal + item.personHours, 0),
+    0,
+  );
+}
+
+/** Die Beispielwoche wird ausschließlich in dimensionslose Anteile umgerechnet. */
+export function thienlongDemandShares(
   weekday: WeekdayKey,
   role: WorkRole,
   isHoliday = false,
-): readonly RoleDemandInterval[] {
-  if (isHoliday || weekday === "saturday" || weekday === "sunday") return WEEKEND[role];
-  if (weekday === "friday") return FRIDAY[role];
-  return WEEKDAY[role];
+): readonly RoleDemandShareInterval[] {
+  const profile = referenceProfileOf(weekday, isHoliday);
+  const totalHours = referenceTotalHours(profile);
+  return profile[role].map((item) => ({
+    startMinutes: item.startMinutes,
+    endMinutes: item.endMinutes,
+    share: totalHours > 0 ? item.personHours / totalHours : 0,
+  }));
 }
 
-export function thienlongDemandHours(
+export function thienlongRoleShare(
   weekday: WeekdayKey,
   role: WorkRole,
   isHoliday = false,
 ): number {
-  return thienlongDemandIntervals(weekday, role, isHoliday).reduce(
-    (total, demand) => total + demand.personMinutes,
+  return thienlongDemandShares(weekday, role, isHoliday).reduce(
+    (total, demand) => total + demand.share,
     0,
-  ) / 60;
+  );
 }
 
-/** Freitag und Samstag sind gleich stark; Sonntag bleibt bewusst darunter. */
+/** Skaliert die aus der Beispielwoche abgeleiteten Anteile auf das Tages-Soll. */
+export function thienlongDemandIntervals(
+  weekday: WeekdayKey,
+  role: WorkRole,
+  totalTargetMinutes: number,
+  isHoliday = false,
+): readonly RoleDemandInterval[] {
+  return thienlongDemandShares(weekday, role, isHoliday).map((item) => ({
+    startMinutes: item.startMinutes,
+    endMinutes: item.endMinutes,
+    personMinutes: Math.max(0, totalTargetMinutes) * item.share,
+  }));
+}
+
+/** Freitag und Samstag sind am stärksten; Sonntag liegt nur leicht über Mo-Do. */
 export function thienlongDemandWeight(weekday: WeekdayKey, isHoliday = false): number {
   if (isHoliday) return 1.5;
   if (weekday === "friday" || weekday === "saturday") return 1.5;
-  if (weekday === "sunday") return 1.3;
+  if (weekday === "sunday") return 1.1;
   return 1;
 }
 
 export function thienlongLateShiftRatio(weekday: WeekdayKey, isHoliday = false): number {
   if (isHoliday || weekday === "friday" || weekday === "saturday") return 0.78;
-  if (weekday === "sunday") return 0.68;
+  if (weekday === "sunday") return 0.6;
   return 23 / 41.5;
 }
 
