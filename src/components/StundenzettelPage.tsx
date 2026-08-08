@@ -175,41 +175,39 @@ export function StundenzettelPage({
         </div>
       </div>
 
-      {showThienlongExtras && (
-        <div className="mt-3 border-t border-slate-300 pt-2 text-[12px]">
-          <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-            Zuschläge
-          </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <div className="text-slate-500">Arbeitsstunden ab 20:00 Uhr</div>
-              <div className="font-semibold">
-                {minutesToDecimalHours(surcharges.after20Minutes)} h
-              </div>
-              <div className="text-[11px] text-slate-500">
-                Zuschlag {surcharges.after20Percent.toLocaleString("de-DE")}%: +
-                {minutesToDecimalHours(surcharges.after20BonusMinutes)} h
-              </div>
+      <div className="mt-3 border-t border-slate-300 pt-2 text-[12px]">
+        <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+          Zuschläge
+        </div>
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <div className="text-slate-500">Arbeitsstunden ab 20:00 Uhr</div>
+            <div className="font-semibold">
+              {minutesToDecimalHours(surcharges.after20Minutes)} h
             </div>
-            <div>
-              <div className="text-slate-500">Sonntagsstunden</div>
-              <div className="font-semibold">
-                {minutesToDecimalHours(surcharges.sundayMinutes)} h
-              </div>
-              <div className="text-[11px] text-slate-500">
-                Zuschlag {surcharges.sundayPercent.toLocaleString("de-DE")}%: +
-                {minutesToDecimalHours(surcharges.sundayBonusMinutes)} h
-              </div>
+            <div className="text-[11px] text-slate-500">
+              Zuschlag {surcharges.after20Percent.toLocaleString("de-DE")}%: +
+              {minutesToDecimalHours(surcharges.after20BonusMinutes)} h
             </div>
           </div>
-          <div className="mt-2 flex items-center justify-between border-t border-slate-200 pt-2">
-            <span className="text-slate-500">Zuschlagsstunden gesamt</span>
-            <span className="font-semibold">
-              +{minutesToDecimalHours(surcharges.totalBonusMinutes)} h
-            </span>
+          <div>
+            <div className="text-slate-500">Sonntagsstunden</div>
+            <div className="font-semibold">
+              {minutesToDecimalHours(surcharges.sundayMinutes)} h
+            </div>
+            <div className="text-[11px] text-slate-500">
+              Zuschlag {surcharges.sundayPercent.toLocaleString("de-DE")}%: +
+              {minutesToDecimalHours(surcharges.sundayBonusMinutes)} h
+            </div>
           </div>
         </div>
-      )}
+        <div className="mt-2 flex items-center justify-between border-t border-slate-200 pt-2">
+          <span className="text-slate-500">Zuschlagsstunden gesamt</span>
+          <span className="font-semibold">
+            +{minutesToDecimalHours(surcharges.totalBonusMinutes)} h
+          </span>
+        </div>
+      </div>
 
       <div className="mt-10 grid grid-cols-3 gap-8 text-[11px]">
         <Signature label="Unterschrift Mitarbeiter" />

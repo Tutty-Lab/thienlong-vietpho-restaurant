@@ -7,6 +7,7 @@ import {
 } from "../lib/demand";
 import { holidayNames as holidayNamesOf } from "../lib/holidays";
 import { minutesToDecimalHours, minutesToTime } from "../lib/time";
+import { calculateZuschlaege } from "../lib/zuschlaege";
 
 function employmentLabel(employee: Employee): string {
   if (employee.employmentType === "VOLLZEIT") return "Vollzeit";
@@ -68,19 +69,40 @@ export function DailySchedulePage({ schedule, date }: { schedule: Schedule; date
   );
   const kitchenMinutes = kitchenShifts.reduce((total, shift) => total + shift.paidMinutes, 0);
   const serviceMinutes = serviceShifts.reduce((total, shift) => total + shift.paidMinutes, 0);
+  const surchargeRows = shifts
+    .map((shift) => {
+      const employee = employeeById.get(shift.employeeId);
+      return employee
+        ? { employee, calculation: calculateZuschlaege([shift], schedule.surchargeConfig) }
+        : null;
+    })
+    .filter((row): row is NonNullable<typeof row> => row !== null)
+    .filter(
+      ({ calculation }) => calculation.after20Minutes > 0 || calculation.sundayMinutes > 0,
+    );
+  const dailySurcharges = calculateZuschlaege(shifts, schedule.surchargeConfig);
+  const hasDailySurcharges =
+    dailySurcharges.after20Minutes > 0 || dailySurcharges.sundayMinutes > 0;
 
   return (
-    <div className="daily-schedule-page mx-auto min-h-[297mm] max-w-[210mm] bg-white p-8 text-[12px] text-slate-900">
-      <div className="mb-4 flex items-start justify-between border-b-2 border-slate-800 pb-3">
+    <div className="daily-schedule-page mx-auto min-h-[297mm] max-w-[210mm] bg-white p-6 text-[12px] text-slate-900">
+      <div className="mb-3 flex items-start justify-between border-b-2 border-slate-800 pb-2">
         <div>
-          <h2 className="text-2xl font-bold tracking-tight">Tagesdienstplan</h2>
-          <p className="mt-1 font-medium text-slate-700">{schedule.companyName || "—"}</p>
+          <h2 className="text-xl font-bold tracking-tight">Tagesdienstplan</h2>
+          <p className="text-slate-600">{schedule.companyName || "—"}</p>
           {schedule.address && <p className="text-[11px] text-slate-500">{schedule.address}</p>}
         </div>
-        <div className="text-right">
-          <div className="text-lg font-semibold">{weekday}</div>
-          <div className="text-slate-600">{format(dateValue, "dd.MM.yyyy")}</div>
+        <div className="text-right text-slate-600">
+          <div>{format(dateValue, "dd.MM.yyyy")}</div>
+          <div>{weekday}</div>
         </div>
+      </div>
+
+      <div className="mb-3 grid grid-cols-2 gap-x-8 gap-y-1">
+        <Info label="Firmenname" value={schedule.companyName || "—"} />
+        <Info label="Datum" value={format(dateValue, "dd.MM.yyyy")} />
+        <Info label="Adresse" value={schedule.address || "—"} />
+        <Info label="Wochentag" value={weekday} />
       </div>
 
       {(holiday || override) && (
@@ -141,7 +163,63 @@ export function DailySchedulePage({ schedule, date }: { schedule: Schedule; date
         </tbody>
       </table>
 
-      <div className="mt-4 grid grid-cols-4 gap-3">
+      {hasDailySurcharges && (
+        <section className="mt-3 break-inside-avoid">
+          <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+            Zuschläge
+          </div>
+          <table className="w-full border-collapse text-[11px]">
+            <thead>
+              <tr className="bg-slate-100">
+                <Th className="text-left">Mitarbeiter</Th>
+                <Th>Ab 20:00</Th>
+                <Th>Sonntag</Th>
+                <Th>Gesamt</Th>
+              </tr>
+            </thead>
+            <tbody>
+              {surchargeRows.map(({ employee, calculation }) => (
+                <tr key={employee.id}>
+                  <Td className="font-medium">{employee.name}</Td>
+                  <SurchargeCell
+                    minutes={calculation.after20Minutes}
+                    bonusMinutes={calculation.after20BonusMinutes}
+                    percent={calculation.after20Percent}
+                  />
+                  <SurchargeCell
+                    minutes={calculation.sundayMinutes}
+                    bonusMinutes={calculation.sundayBonusMinutes}
+                    percent={calculation.sundayPercent}
+                  />
+                  <Td className="text-center font-semibold">
+                    +{minutesToDecimalHours(calculation.totalBonusMinutes)} h
+                  </Td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr className="bg-slate-100 font-semibold">
+                <Td>Gesamt</Td>
+                <SurchargeCell
+                  minutes={dailySurcharges.after20Minutes}
+                  bonusMinutes={dailySurcharges.after20BonusMinutes}
+                  percent={dailySurcharges.after20Percent}
+                />
+                <SurchargeCell
+                  minutes={dailySurcharges.sundayMinutes}
+                  bonusMinutes={dailySurcharges.sundayBonusMinutes}
+                  percent={dailySurcharges.sundayPercent}
+                />
+                <Td className="text-center">
+                  +{minutesToDecimalHours(dailySurcharges.totalBonusMinutes)} h
+                </Td>
+              </tr>
+            </tfoot>
+          </table>
+        </section>
+      )}
+
+      <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 text-[12px] sm:grid-cols-4">
         <Stat label="Im Einsatz" value={`${shifts.length} Pers.`} />
         <Stat label="Gesamtstunden" value={`${minutesToDecimalHours(totalMinutes)} h`} />
         <Stat
@@ -154,9 +232,10 @@ export function DailySchedulePage({ schedule, date }: { schedule: Schedule; date
         />
       </div>
 
-      <div className="mt-10 grid grid-cols-2 gap-12 text-[11px] text-slate-600">
-        <div className="border-t border-slate-500 pt-1">Erstellt von / Datum</div>
-        <div className="border-t border-slate-500 pt-1">Bestätigung</div>
+      <div className="mt-10 grid grid-cols-3 gap-8 text-[11px]">
+        <div className="mt-8 border-t border-slate-500 pt-1 text-slate-600">Erstellt von</div>
+        <div className="mt-8 border-t border-slate-500 pt-1 text-slate-600">Bestätigung</div>
+        <div className="mt-8 border-t border-slate-500 pt-1 text-slate-600">Datum</div>
       </div>
     </div>
   );
@@ -168,16 +247,46 @@ function Badge({ children }: { children: React.ReactNode }) {
 
 function Stat({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded border border-slate-300 px-3 py-2">
-      <div className="text-[10px] uppercase tracking-wide text-slate-500">{label}</div>
-      <div className="mt-0.5 font-semibold text-slate-900">{value}</div>
+    <div>
+      <div className="text-slate-500">{label}</div>
+      <div className="font-semibold">{value}</div>
     </div>
+  );
+}
+
+function Info({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex gap-2">
+      <span className="min-w-[110px] text-slate-500">{label}:</span>
+      <span className="font-medium">{value}</span>
+    </div>
+  );
+}
+
+function SurchargeCell({
+  minutes,
+  bonusMinutes,
+  percent,
+}: {
+  minutes: number;
+  bonusMinutes: number;
+  percent: number;
+}) {
+  if (minutes <= 0) return <Td className="text-center text-slate-400">—</Td>;
+
+  return (
+    <Td className="text-center">
+      <div>{minutesToDecimalHours(minutes)} h</div>
+      <div className="text-[10px] text-slate-500">
+        {percent.toLocaleString("de-DE")}%: +{minutesToDecimalHours(bonusMinutes)} h
+      </div>
+    </Td>
   );
 }
 
 function Th({ children, className = "" }: { children?: React.ReactNode; className?: string }) {
   return (
-    <th className={`border border-slate-300 px-2 py-1.5 text-center font-semibold ${className}`}>
+    <th className={`border border-slate-300 px-2 py-1 text-center font-semibold ${className}`}>
       {children}
     </th>
   );
@@ -193,7 +302,7 @@ function Td({
   colSpan?: number;
 }) {
   return (
-    <td colSpan={colSpan} className={`border border-slate-300 px-2 py-1.5 ${className}`}>
+    <td colSpan={colSpan} className={`border border-slate-300 px-2 py-[3px] ${className}`}>
       {children}
     </td>
   );

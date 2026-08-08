@@ -123,7 +123,7 @@ export type Schedule = {
   month: number;
   /** Arbeitszeit-Fenster (giờ làm) je Wochentag + Feiertag. */
   workHours: WorkHoursConfig;
-  /** Zuschlaege fuer Thienlong; optional, damit alte Speicherstaende lesbar bleiben. */
+  /** Zuschlaege fuer den aktiven Store; optional, damit alte Speicherstaende lesbar bleiben. */
   surchargeConfig?: SurchargeConfig;
   /** Ausnahmen für einzelne Daten (geschlossen / abweichende Zeiten). */
   dateOverrides: DateOverride[];

@@ -80,14 +80,15 @@ describe("Stundenaufzeichnung fuer Azubi", () => {
     expect(html).toContain("Berufsschule");
   });
 
-  it("keeps the Thienlong Zuschlag block out of other stores", () => {
+  it("shows Zuschlaege for Vietpho as well", () => {
     const html = renderAzubi(
       { inSchoolTerm: false, schoolDays: [], monthlyHoursOutOfTerm: 154 },
       false,
     );
 
-    expect(html).not.toContain("Zuschläge");
-    expect(html).not.toContain("Sonntagsstunden");
+    expect(html).toContain("Zuschläge");
+    expect(html).toContain("Arbeitsstunden ab 20:00 Uhr");
+    expect(html).toContain("Sonntagsstunden");
   });
 
   it("prints configured surcharge rates and bonus-equivalent hours", () => {

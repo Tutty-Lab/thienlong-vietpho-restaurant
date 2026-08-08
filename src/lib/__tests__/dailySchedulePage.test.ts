@@ -36,6 +36,7 @@ const schedule: Schedule = {
   year: 2026,
   month: 8,
   workHours: DEFAULT_WORK_HOURS,
+  surchargeConfig: { after20Percent: 25, sundayPercent: 50 },
   dateOverrides: [],
   employees,
   shifts: [
@@ -88,6 +89,8 @@ describe("DailySchedulePage", () => {
     const html = render("2026-08-08");
 
     expect(html).toContain("Tagesdienstplan");
+    expect(html).toContain("Firmenname");
+    expect(html).toContain("Wochentag");
     expect(html).toContain("Samstag");
     expect(html).toContain("08.08.2026");
     expect(html).toContain("Lan Küche");
@@ -106,5 +109,23 @@ describe("DailySchedulePage", () => {
     expect(html).toContain("1 Pers. · 4,00 h");
     expect(html).toContain("Geteilter Dienst");
     expect(html).toContain("Spätdienst");
+    expect(html).toContain("Erstellt von");
+    expect(html).toContain("Zuschläge");
+    expect(html).toContain("Ab 20:00");
+    expect(html).toContain("+1,00 h");
+  });
+
+  it("includes Sunday surcharge hours in the selected day's export", () => {
+    const html = render("2026-08-09");
+
+    expect(html).toContain("Sonntag");
+    expect(html).toContain("0,75 h");
+    expect(html).toContain("50%: +0,38 h");
+  });
+
+  it("keeps the daily export compact when no surcharge hours exist", () => {
+    const html = render("2026-08-10");
+
+    expect(html).not.toContain("Zuschläge");
   });
 });
