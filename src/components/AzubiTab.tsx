@@ -261,7 +261,7 @@ export function AzubiTab({ store }: { store: UseScheduleReturn }) {
                                 className="mt-1 text-xs font-medium text-amber-800"
                                 role="alert"
                               >
-                                Cảnh báo ≥{AZUBI_MONTHLY_WARNING_HOURS}h
+                                Cảnh báo &gt;{AZUBI_MONTHLY_WARNING_HOURS}h
                               </p>
                             )}
                           </div>
@@ -299,7 +299,7 @@ export function AzubiTab({ store }: { store: UseScheduleReturn }) {
                 </div>
                 {needsWarning && (
                   <p id={warningId} className="mt-2 text-xs font-medium text-amber-800" role="alert">
-                    ⚠ Từ {AZUBI_MONTHLY_WARNING_HOURS}h/tháng: lịch có thể khó xếp. Hệ thống vẫn giữ
+                    ⚠ Trên {AZUBI_MONTHLY_WARNING_HOURS}h/tháng: lịch có thể khó xếp. Hệ thống vẫn giữ
                     nguyên {monthlyHours}h do chủ nhập.
                   </p>
                 )}

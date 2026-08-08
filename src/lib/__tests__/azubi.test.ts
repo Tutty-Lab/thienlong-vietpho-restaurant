@@ -213,14 +213,14 @@ describe("Azubi có kỳ học theo khoảng ngày", () => {
       ...ranged,
       monthlyHoursByMonth: {
         "2026-06": 24.26,
-        "2026-08": AZUBI_MONTHLY_WARNING_HOURS,
+        "2026-08": AZUBI_MONTHLY_WARNING_HOURS + 0.5,
         "không-hợp-lệ": 50,
       },
     });
 
     expect(normalized.monthlyHoursByMonth).toEqual({
       "2026-06": 24.5,
-      "2026-08": AZUBI_MONTHLY_WARNING_HOURS,
+      "2026-08": AZUBI_MONTHLY_WARNING_HOURS + 0.5,
     });
     expect(azubiMonthlyHoursNeedWarning(normalized, 2026, 6)).toBe(false);
     expect(azubiMonthlyHoursNeedWarning(normalized, 2026, 8)).toBe(true);
@@ -261,21 +261,26 @@ describe("Azubi có kỳ học theo khoảng ngày", () => {
 });
 
 describe("Azubi ngoài kỳ học", () => {
-  it("cho chủ đặt trực tiếp giờ theo tháng và cảnh báo từ 174h mà không cắt giờ", () => {
+  it("cho chủ đặt trực tiếp giờ theo tháng và chỉ cảnh báo khi vượt 174h", () => {
     const below: AzubiConfig = {
       inSchoolTerm: false,
       schoolDays: [],
       monthlyHoursOutOfTerm: 173.5,
     };
-    const warning: AzubiConfig = {
+    const atLimit: AzubiConfig = {
       ...below,
       monthlyHoursOutOfTerm: AZUBI_MONTHLY_WARNING_HOURS,
+    };
+    const warning: AzubiConfig = {
+      ...below,
+      monthlyHoursOutOfTerm: AZUBI_MONTHLY_WARNING_HOURS + 0.5,
     };
 
     expect(azubiMonthlyHoursOutOfTerm(below)).toBe(173.5);
     expect(azubiMonthlyHoursNeedWarning(below)).toBe(false);
+    expect(azubiMonthlyHoursNeedWarning(atLimit)).toBe(false);
     expect(azubiMonthlyHoursNeedWarning(warning)).toBe(true);
-    expect(azubiMonthlyMinutes(warning, 2026, 8)).toBe(
+    expect(azubiMonthlyMinutes(atLimit, 2026, 8)).toBe(
       AZUBI_MONTHLY_WARNING_HOURS * 60,
     );
   });

@@ -323,9 +323,9 @@ export function EmployeesTab({ store }: { store: UseScheduleReturn }) {
                     <span
                       id={`azubi-warning-${emp.id}`}
                       className="text-xs font-medium text-amber-700"
-                      title={`Từ ${AZUBI_MONTHLY_WARNING_HOURS}h/tháng lịch có thể khó xếp; số giờ vẫn được giữ nguyên.`}
+                      title={`Trên ${AZUBI_MONTHLY_WARNING_HOURS}h/tháng lịch có thể khó xếp; số giờ vẫn được giữ nguyên.`}
                     >
-                      cảnh báo ≥{AZUBI_MONTHLY_WARNING_HOURS}h
+                      cảnh báo &gt;{AZUBI_MONTHLY_WARNING_HOURS}h
                     </span>
                   )}
                   {tooMany && (
