@@ -47,7 +47,11 @@ export function EmployeesTab({ store }: { store: UseScheduleReturn }) {
 
   return (
     <section className="rounded-lg bg-white border border-slate-200 p-4 sm:p-5 shadow-sm">
-      <h2 className="text-base font-semibold text-slate-900 mb-4">Nhân viên</h2>
+      <h2 className="text-base font-semibold text-slate-900 mb-1">Nhân viên</h2>
+      <p className="mb-4 text-xs text-slate-500">
+        Bật “Lịch 2 quán” cho cùng nhân viên ở cả hai cửa hàng: Thienlong làm T2–T7,
+        Vietpho làm Chủ Nhật.
+      </p>
 
       {/* Thêm nhân viên mới */}
       <div className="flex flex-col sm:flex-row sm:flex-wrap sm:items-end gap-3 mb-5 rounded bg-slate-50 border border-slate-200 p-3">
@@ -264,6 +268,31 @@ export function EmployeesTab({ store }: { store: UseScheduleReturn }) {
                       <span className="text-slate-400">h</span>
                     </div>
                   )}
+                </label>
+                <label
+                  className="flex items-center gap-2 sm:pb-1.5 cursor-pointer select-none whitespace-nowrap"
+                  title="Lịch cố định: Thienlong từ Thứ Hai đến Thứ Bảy, Vietpho vào Chủ Nhật"
+                >
+                  <input
+                    type="checkbox"
+                    checked={emp.fixedStoreWeekPattern === true}
+                    onChange={(event) =>
+                      updateEmployee(emp.id, {
+                        fixedStoreWeekPattern: event.target.checked,
+                      })
+                    }
+                    aria-label={`Lịch cố định hai cửa hàng cho ${emp.name}`}
+                    className="h-5 w-5 rounded border-slate-300 text-sky-700 focus:ring-sky-600"
+                  />
+                  <span
+                    className={`text-sm ${
+                      emp.fixedStoreWeekPattern
+                        ? "font-medium text-sky-800"
+                        : "text-slate-500"
+                    }`}
+                  >
+                    Lịch 2 quán
+                  </span>
                 </label>
                 <label className="flex items-center gap-2 sm:pb-1.5 cursor-pointer select-none">
                   <input

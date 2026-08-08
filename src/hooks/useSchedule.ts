@@ -11,9 +11,9 @@ import { clearState, loadState, saveState, type PersistedState } from "../lib/st
 import { isRemoteConfigured, loadRemote, saveRemote, type RemoteStatus } from "../lib/remote";
 import { createManualShift, updateShiftTimes } from "../lib/shiftOps";
 import {
-  DEFAULT_WORK_HOURS,
-  WORK_HOURS_VERSION,
+  defaultWorkHoursForStore,
   normalizeWorkHours,
+  workHoursVersionForStore,
   type DateOverride,
   type OverrideMap,
 } from "../lib/workHours";
@@ -24,17 +24,23 @@ import {
   withAutomaticAzubiTarget,
 } from "../lib/azubi";
 import { checkScheduleReadiness } from "../lib/readiness";
+import {
+  DEFAULT_SURCHARGE_CONFIG,
+  normalizeSurchargeConfig,
+} from "../lib/zuschlaege";
 
 function emptySchedule(store: StoreConfig): Schedule {
   const now = new Date();
+  const hoursVersion = workHoursVersionForStore(store.id);
   return {
     companyName: store.name,
     address: store.address,
     holidayState: store.holidayState,
     year: now.getFullYear(),
     month: now.getMonth() + 1,
-    hoursVersion: WORK_HOURS_VERSION,
-    workHours: structuredClone(DEFAULT_WORK_HOURS),
+    hoursVersion,
+    workHours: defaultWorkHoursForStore(store.id),
+    surchargeConfig: { ...DEFAULT_SURCHARGE_CONFIG },
     dateOverrides: [],
     employees: [],
     shifts: [],
@@ -58,22 +64,24 @@ function normalizeSchedule(raw: Schedule | undefined, store: StoreConfig): Sched
   if (!raw) return base;
   const year = raw.year ?? base.year;
   const month = raw.month ?? base.month;
+  const hoursVersion = workHoursVersionForStore(store.id);
   return {
     // Name, Adresse und Bundesland kommen IMMER aus stores.ts – so kann ein
     // alter Speicherstand nicht die Daten der falschen Filiale mitschleppen.
     companyName: store.name,
     address: store.address,
     holidayState: store.holidayState,
-    hoursVersion: WORK_HOURS_VERSION,
+    hoursVersion,
     year,
     month,
     // Ältere Stände haben noch die alten Öffnungszeiten (Mo–Do ohne
     // Mittagsschließung, Sa ab 11:00). Einmalig auf die aktuelle Vorgabe
     // heben – sonst verdeckt der gespeicherte Stand die neuen Zeiten für immer.
     workHours:
-      raw.hoursVersion === WORK_HOURS_VERSION
-        ? normalizeWorkHours(raw.workHours)
-        : structuredClone(DEFAULT_WORK_HOURS),
+      raw.hoursVersion === hoursVersion
+        ? normalizeWorkHours(raw.workHours, defaultWorkHoursForStore(store.id))
+        : defaultWorkHoursForStore(store.id),
+    surchargeConfig: normalizeSurchargeConfig(raw.surchargeConfig),
     dateOverrides: Array.isArray(raw.dateOverrides) ? raw.dateOverrides : [],
     employees: (raw.employees ?? []).map((employee) =>
       normalizeEmployee(employee, year, month),
@@ -193,9 +201,10 @@ export function useSchedule() {
       month: schedule.month,
       workHours: schedule.workHours,
       holidayState: schedule.holidayState,
+      storeId,
       overrides: overridesToMap(schedule.dateOverrides),
     }),
-    [schedule],
+    [schedule, storeId],
   );
   const readiness = useMemo(
     () =>

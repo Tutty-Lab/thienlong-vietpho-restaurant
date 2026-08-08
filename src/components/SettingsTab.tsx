@@ -10,10 +10,16 @@ import {
   weekdayKeyOf,
   type WeekdayKey,
 } from "../lib/demand";
-import { DEFAULT_WORK_HOURS, type DayBlocks, type DayWindow, type WorkHoursConfig } from "../lib/workHours";
+import {
+  defaultWorkHoursForStore,
+  type DayBlocks,
+  type DayWindow,
+  type WorkHoursConfig,
+} from "../lib/workHours";
 import { holidayNames as holidayNamesOf, HOLIDAY_STATE_LABELS } from "../lib/holidays";
 import { isoLabel } from "../lib/shiftOps";
 import { STORES } from "../lib/stores";
+import { normalizeSurchargeConfig } from "../lib/zuschlaege";
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -148,6 +154,7 @@ function DayRow({
 
 export function SettingsTab({ store }: { store: UseScheduleReturn }) {
   const { schedule, updateMeta, upsertOverride, removeOverride } = store;
+  const surchargeConfig = normalizeSurchargeConfig(schedule.surchargeConfig);
   const years = Array.from({ length: 7 }, (_, i) => new Date().getFullYear() - 1 + i);
 
   // ---- Ngày đặc biệt (Ausnahmen) ----
@@ -279,6 +286,54 @@ export function SettingsTab({ store }: { store: UseScheduleReturn }) {
         </div>
       </section>
 
+      {store.storeId === "thienlong" && (
+        <section className="rounded-lg bg-white border border-slate-200 p-4 sm:p-5 shadow-sm">
+          <h2 className="text-base font-semibold text-slate-900 mb-1">Hệ số Zuschläge</h2>
+          <p className="text-xs text-slate-500 mb-3">
+            Dùng để quy đổi số giờ được cộng thêm trên bảng chấm công. Nếu một giờ vừa là
+            Chủ Nhật vừa sau 20:00 thì được cộng cả hai mức.
+          </p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <Field label="Làm sau 20:00 (%)">
+              <input
+                type="number"
+                min="0"
+                step="0.5"
+                inputMode="decimal"
+                className={inputClass}
+                value={surchargeConfig.after20Percent}
+                onChange={(e) =>
+                  updateMeta({
+                    surchargeConfig: {
+                      ...surchargeConfig,
+                      after20Percent: Math.max(0, Number(e.target.value) || 0),
+                    },
+                  })
+                }
+              />
+            </Field>
+            <Field label="Làm Chủ Nhật (%)">
+              <input
+                type="number"
+                min="0"
+                step="0.5"
+                inputMode="decimal"
+                className={inputClass}
+                value={surchargeConfig.sundayPercent}
+                onChange={(e) =>
+                  updateMeta({
+                    surchargeConfig: {
+                      ...surchargeConfig,
+                      sundayPercent: Math.max(0, Number(e.target.value) || 0),
+                    },
+                  })
+                }
+              />
+            </Field>
+          </div>
+        </section>
+      )}
+
       <section className="rounded-lg bg-white border border-slate-200 p-4 sm:p-5 shadow-sm">
         <h2 className="text-base font-semibold text-slate-900 mb-1">Giờ làm theo ngày</h2>
         <p className="text-xs text-slate-500 mb-3">
@@ -310,12 +365,14 @@ export function SettingsTab({ store }: { store: UseScheduleReturn }) {
           type="button"
           onClick={() => {
             if (confirm("Đặt lại toàn bộ giờ làm về mặc định của cửa hàng?")) {
-              updateMeta({ workHours: structuredClone(DEFAULT_WORK_HOURS) });
+              updateMeta({ workHours: defaultWorkHoursForStore(store.storeId) });
             }
           }}
           className="mt-3 text-xs text-slate-500 hover:text-slate-900 underline"
         >
-          Đặt lại giờ mặc định (T2–T5 nghỉ trưa 15:00–16:30, T6 11–22, T7/CN 12–22)
+          {store.storeId === "vietpho"
+            ? "Đặt lại giờ mặc định Vietpho (nhân viên bắt đầu đúng giờ mở cửa)"
+            : "Đặt lại giờ mặc định Thienlong (nhân viên đến trước giờ mở cửa 30 phút)"}
         </button>
 
         {holidaysThisMonth.length > 0 && (

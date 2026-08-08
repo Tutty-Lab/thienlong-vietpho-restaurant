@@ -11,6 +11,12 @@ export type EmploymentType = "VOLLZEIT" | "TEILZEIT" | "AZUBI";
 /** Fester Einsatzbereich einer Thienlong-Mitarbeiterin bzw. eines Mitarbeiters. */
 export type WorkRole = "KITCHEN" | "SERVICE";
 
+/** Prozentsaetze fuer die zusaetzliche Verguetung bestimmter Arbeitszeiten. */
+export type SurchargeConfig = {
+  after20Percent: number;
+  sundayPercent: number;
+};
+
 /** Wochentag-Schlüssel (Duplikat von lib/demand, um Zyklen zu vermeiden). */
 export type WeekdayName =
   | "monday"
@@ -60,6 +66,11 @@ export type Employee = {
   azubi?: AzubiConfig;
   /** Bếp (KITCHEN) oder Bồi (SERVICE), wenn die Person fest zugeordnet ist. */
   workRole?: WorkRole;
+  /**
+   * Fester Zwei-Filialen-Rhythmus: Thienlong Montag-Samstag, Vietpho Sonntag.
+   * Das Feld wird je Filiale im bestehenden Mitarbeiter-JSON gespeichert.
+   */
+  fixedStoreWeekPattern?: boolean;
   /**
    * Häkchen „Lưu" in der Mitarbeiterliste: vom Nutzer gesetzte Bestätigung,
    * dass die Daten dieser Person geprüft und übernommen sind. Rein als Merker
@@ -112,6 +123,8 @@ export type Schedule = {
   month: number;
   /** Arbeitszeit-Fenster (giờ làm) je Wochentag + Feiertag. */
   workHours: WorkHoursConfig;
+  /** Zuschlaege fuer Thienlong; optional, damit alte Speicherstaende lesbar bleiben. */
+  surchargeConfig?: SurchargeConfig;
   /** Ausnahmen für einzelne Daten (geschlossen / abweichende Zeiten). */
   dateOverrides: DateOverride[];
   employees: Employee[];

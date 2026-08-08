@@ -3,11 +3,12 @@
 // ============================================================================
 
 import { AZUBI_HOURS_OUT_OF_TERM, type Employee, type Shift } from "../types";
-import { calculatePause } from "./time";
+import { calculatePause, minutesToTime } from "./time";
 import { maxConsecutiveRun } from "./consecutive";
 import { datesOfMonth, parseIsoDate } from "./demand";
 import { holidaysOf, type HolidayState } from "./holidays";
 import { resolveDay, type OverrideMap, type WorkHoursConfig } from "./workHours";
+import { vietphoPeakIntervals } from "./vietphoDemand";
 
 export type ValidationError = {
   employeeId?: string;
@@ -35,6 +36,7 @@ export type ValidationContext = {
   month: number;
   workHours: WorkHoursConfig;
   holidayState: HolidayState;
+  storeId?: string;
   overrides?: OverrideMap;
 };
 
@@ -169,6 +171,34 @@ export function validateSchedule(
     for (const date of datesOfMonth(context.year, context.month)) {
       const day = resolveDay(context.workHours, date, holidays, context.overrides);
       if (day.closed) continue;
+
+      if (context.storeId === "vietpho") {
+        for (const peak of vietphoPeakIntervals()) {
+          const existsInWorkHours = day.blocks.some(
+            (block) =>
+              block.startMinutes <= peak.startMinutes && block.endMinutes >= peak.endMinutes,
+          );
+          if (!existsInWorkHours) continue;
+          const coveringCount = shifts.filter((shift) => {
+            if (shift.date !== date) return false;
+            return (shift.segments ?? [shift]).some(
+              (segment) =>
+                segment.startMinutes <= peak.startMinutes && segment.endMinutes >= peak.endMinutes,
+            );
+          }).length;
+          if (coveringCount < peak.minStaff) {
+            errors.push({
+              date,
+              message:
+                `Ngày ${date}: cần ít nhất ${peak.minStaff} nhân viên trong giờ cao điểm ` +
+                `${minutesToTime(peak.startMinutes)}–${minutesToTime(peak.endMinutes)} ` +
+                `(hiện có ${coveringCount}).`,
+            });
+          }
+        }
+        continue;
+      }
+
       const openingStart = day.blocks[0].startMinutes;
       const openerCount = shifts.filter((shift) => {
         if (shift.date !== date) return false;

@@ -1,9 +1,4 @@
-import {
-  DAY_WEIGHTS,
-  LATE_SHIFT_RATIOS,
-  WEEKDAY_LABELS_VI,
-  type WeekdayKey,
-} from "../lib/demand";
+import { WEEKDAY_LABELS_VI, type WeekdayKey } from "../lib/demand";
 import {
   THIENLONG_REFERENCE_INVOICES,
   thienlongDemandShares,
@@ -11,6 +6,11 @@ import {
   thienlongLateShiftRatio,
   thienlongRoleShare,
 } from "../lib/thienlongDemand";
+import {
+  VIETPHO_REFERENCE_INVOICES,
+  vietphoDemandWeight,
+  vietphoLateShiftRatio,
+} from "../lib/vietphoDemand";
 
 const WEEKDAY_ORDER: WeekdayKey[] = [
   "monday",
@@ -28,6 +28,14 @@ const THIENLONG_DAY_WEIGHTS = Object.fromEntries(
 
 const THIENLONG_LATE_SHIFT_RATIOS = Object.fromEntries(
   WEEKDAY_ORDER.map((weekday) => [weekday, thienlongLateShiftRatio(weekday)]),
+) as Record<WeekdayKey, number>;
+
+const VIETPHO_DAY_WEIGHTS = Object.fromEntries(
+  WEEKDAY_ORDER.map((weekday) => [weekday, vietphoDemandWeight(weekday)]),
+) as Record<WeekdayKey, number>;
+
+const VIETPHO_LATE_SHIFT_RATIOS = Object.fromEntries(
+  WEEKDAY_ORDER.map((weekday) => [weekday, vietphoLateShiftRatio(weekday)]),
 ) as Record<WeekdayKey, number>;
 
 function roleRatio(kitchenShare: number, serviceShare: number): string {
@@ -113,8 +121,10 @@ function WeekdayTable({
 
 export function DocsTab({ storeId }: { storeId: string }) {
   const isThienlong = storeId === "thienlong";
-  const dayWeights = isThienlong ? THIENLONG_DAY_WEIGHTS : DAY_WEIGHTS;
-  const lateShiftRatios = isThienlong ? THIENLONG_LATE_SHIFT_RATIOS : LATE_SHIFT_RATIOS;
+  const dayWeights = isThienlong ? THIENLONG_DAY_WEIGHTS : VIETPHO_DAY_WEIGHTS;
+  const lateShiftRatios = isThienlong
+    ? THIENLONG_LATE_SHIFT_RATIOS
+    : VIETPHO_LATE_SHIFT_RATIOS;
   const weekdayKitchen = thienlongRoleShare("monday", "KITCHEN");
   const weekdayService = thienlongRoleShare("monday", "SERVICE");
   const weekdayLunchKitchen = demandShareBetween("monday", "KITCHEN", 10 * 60 + 30, 15 * 60);
@@ -133,8 +143,9 @@ export function DocsTab({ storeId }: { storeId: string }) {
       <div className="rounded-lg bg-slate-900 text-white p-4 sm:p-5">
         <h1 className="text-lg font-semibold">Tài liệu — cách xếp lịch hoạt động</h1>
         <p className="text-sm text-slate-300 mt-1">
-          Các bảng dưới đây mô tả cách thuật toán phân bổ lịch. Tỷ lệ Bếp/Bồi lấy từ lịch
-          thực tế mẫu và tự co giãn theo tổng giờ của tháng, không phải số giờ mặc định cố định.
+          {isThienlong
+            ? "Thienlong dùng tỷ lệ Bếp/Bồi từ lịch thực tế mẫu và tự co giãn theo tổng giờ tháng."
+            : "Vietpho dùng profile riêng: ca ngắn hơn, không tách Bếp/Bồi và ưu tiên hai giờ cao điểm."}
         </p>
       </div>
 
@@ -209,12 +220,40 @@ export function DocsTab({ storeId }: { storeId: string }) {
         </Section>
       )}
 
+      {!isThienlong && (
+        <Section title="Vietpho: profile riêng, không tách Bếp / Bồi">
+          <p>
+            Mốc tham chiếu của Vietpho là <b>{VIETPHO_REFERENCE_INVOICES} Rechnungen inkl. Steuer</b>.
+            Tiệm ít nhân viên và Umsatz thấp hơn Thienlong nên thuật toán không dùng tỷ lệ Bếp/Bồi.
+          </p>
+          <ul className="list-disc pl-5 space-y-1">
+            <li>Nhân viên bắt đầu đúng giờ mở cửa, không đến sớm 30 phút.</li>
+            <li>Ca ngắn hơn Thienlong khoảng 1–2 giờ, tối đa <b>8h/ca</b>.</li>
+            <li>Luôn ưu tiên ít nhất <b>2 người lúc 12:30–13:00 và 18:00–20:00</b>.</li>
+            <li>T6/T7 chỉ cao hơn ngày thường khoảng <b>20%</b>; Chủ Nhật nhỉnh hơn nhẹ.</li>
+          </ul>
+        </Section>
+      )}
+
       <Section title="Nguyên tắc bắt buộc (luôn đúng)">
         <ul className="list-disc pl-5 space-y-1">
-          <li>Tối đa <b>10 giờ công</b> mỗi ngày; ca liên tục có thể kéo dài đến <b>11 giờ có mặt</b> gồm giờ nghỉ.</li>
+          <li>
+            Tối đa <b>{isThienlong ? 10 : 8} giờ công</b> mỗi ngày
+            {isThienlong && <>; ca liên tục có thể kéo dài đến <b>11 giờ có mặt</b> gồm giờ nghỉ</>}.
+          </li>
           <li>Mỗi người làm tối đa <b>một ngày công/ngày</b>, có thể gồm <b>hai khung giờ tách rời</b>.</li>
           <li>Không làm quá <b>6 ngày liên tiếp</b>, nên luôn có ít nhất một ngày nghỉ mỗi tuần.</li>
-          <li>Mỗi ngày mở cửa có ít nhất <b>2 nhân viên đến trước giờ mở cửa 30 phút</b>.</li>
+          <li>
+            Checkbox <b>Lịch 2 quán</b> khóa nhân viên vào T2–T7 tại Thienlong và Chủ Nhật tại Vietpho;
+            các ngày này không được chọn ngẫu nhiên.
+          </li>
+          {isThienlong ? (
+            <li>Mỗi ngày mở cửa có ít nhất <b>2 nhân viên đến trước giờ mở cửa 30 phút</b>.</li>
+          ) : (
+            <li>
+              Không xếp ca trước giờ mở cửa; hai giờ cao điểm có ít nhất <b>2 nhân viên</b>.
+            </li>
+          )}
           <li>
             Mỗi người phải đạt <b>đúng định mức tháng</b> (Sollstunden) — không thừa, không thiếu.
           </li>
@@ -248,7 +287,7 @@ export function DocsTab({ storeId }: { storeId: string }) {
             </>
           ) : (
             <>
-              <b>Thứ 6, Thứ 7, Chủ Nhật</b> đông hơn ngày thường.
+              <b>Thứ 6 và Thứ 7</b> cao hơn ngày thường khoảng 20%; <b>Chủ Nhật</b> chỉ nhỉnh hơn nhẹ.
             </>
           )}{" "}
           Ngày{" "}
@@ -281,10 +320,13 @@ export function DocsTab({ storeId }: { storeId: string }) {
           thời gian vẫn đi làm ca ngắn hôm đó, và <b>định mức tháng vẫn được bù đủ</b> ở các ngày khác.
         </p>
         <p className="text-slate-600">
-          Độ dài ca cho phép: <b>3 đến 10 giờ, bước nửa giờ</b> (3; 3,5; 4 … 10). Nhờ nửa giờ mà
-          khung chiều 16:30–22:00 được lấp vừa khít 5,5h thay vì phí nửa tiếng.
+          Độ dài ca cho phép: {isThienlong ? (
+            <><b>3 đến 10 giờ</b>, bước nửa giờ.</>
+          ) : (
+            <><b>1 đến 8 giờ</b>, bước nửa giờ; Vollzeit bắt đầu từ 4h.</>
+          )} Nhờ bước nửa giờ, ca được lắp vừa khung mà không phải làm tròn sai.
           <br />
-          Toàn thời gian ưu tiên ca <b>từ 6h trở lên</b>, bán thời gian nhận cả dải 3–10h. Khi khung giờ
+          Toàn thời gian ưu tiên ca dài hơn, bán thời gian nhận cả dải ca ngắn. Khi khung giờ
           quá hẹp cho ca 6h thì toàn thời gian vẫn được xếp ca ngắn hơn để không phải nghỉ cả ngày.
         </p>
       </Section>

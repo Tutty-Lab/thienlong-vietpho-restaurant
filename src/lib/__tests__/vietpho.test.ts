@@ -1,0 +1,157 @@
+import { describe, expect, it } from "vitest";
+import type { Employee } from "../../types";
+import { generateSchedule } from "../scheduler";
+import { datesOfMonth } from "../demand";
+import { validateSchedule } from "../validation";
+import { defaultWorkHoursForStore, workHoursVersionForStore } from "../workHours";
+import {
+  VIETPHO_REFERENCE_INVOICES,
+  VIETPHO_REFERENCE_TAX_INCLUDED,
+  vietphoDemandIntervals,
+  vietphoDemandWeight,
+  vietphoPeakIntervals,
+} from "../vietphoDemand";
+
+describe("Vietpho scheduling profile", () => {
+  const employees: Employee[] = Array.from({ length: 4 }, (_, index) => ({
+    id: `vietpho-${index}`,
+    name: `Vietpho ${index}`,
+    employmentType: "VOLLZEIT",
+    targetMinutes: 174 * 60,
+  }));
+
+  it("starts staff at the published opening time instead of 30 minutes early", () => {
+    const hours = defaultWorkHoursForStore("vietpho");
+
+    expect(hours.perWeekday.monday).toEqual([
+      { startMinutes: 11 * 60, endMinutes: 15 * 60 },
+      { startMinutes: 17 * 60, endMinutes: 22 * 60 },
+    ]);
+    expect(hours.perWeekday.friday[0].startMinutes).toBe(11 * 60);
+    expect(hours.perWeekday.saturday[0].startMinutes).toBe(12 * 60);
+    expect(workHoursVersionForStore("thienlong")).toBe(3);
+    expect(workHoursVersionForStore("vietpho")).toBe(4);
+  });
+
+  it("records the Vietpho calibration as 100 invoices including tax", () => {
+    expect(VIETPHO_REFERENCE_INVOICES).toBe(100);
+    expect(VIETPHO_REFERENCE_TAX_INCLUDED).toBe(true);
+  });
+
+  it("keeps two staff at the lunch and dinner peaks without role separation", () => {
+    expect(vietphoPeakIntervals()).toEqual([
+      { startMinutes: 12 * 60 + 30, endMinutes: 13 * 60, minStaff: 2 },
+      { startMinutes: 18 * 60, endMinutes: 20 * 60, minStaff: 2 },
+    ]);
+
+    const demand = vietphoDemandIntervals("monday", 12 * 60);
+    expect(demand.reduce((sum, item) => sum + item.personMinutes, 0)).toBeCloseTo(12 * 60);
+    expect(vietphoDemandWeight("friday")).toBe(1.2);
+    expect(vietphoDemandWeight("saturday")).toBe(1.2);
+    expect(vietphoDemandWeight("sunday")).toBeGreaterThan(1);
+    expect(vietphoDemandWeight("sunday")).toBeLessThan(1.2);
+  });
+
+  it("uses shifts about one to two hours shorter than the Thienlong maximum", () => {
+    const shifts = generateSchedule({
+      year: 2026,
+      month: 8,
+      storeId: "vietpho",
+      workHours: defaultWorkHoursForStore("vietpho"),
+      holidays: new Set<string>(),
+      employees,
+      seed: "vietpho-shorter-shifts",
+    });
+
+    expect(Math.max(...shifts.map((shift) => shift.paidMinutes))).toBeLessThanOrEqual(8 * 60);
+    expect(shifts.some((shift) => shift.paidMinutes <= 6 * 60)).toBe(true);
+  });
+
+  it("spreads low-hour employees across many short visits", () => {
+    const partTimers: Employee[] = Array.from({ length: 3 }, (_, index) => ({
+      id: `vietpho-part-${index}`,
+      name: `Vietpho Teilzeit ${index}`,
+      employmentType: "TEILZEIT",
+      targetMinutes: 30 * 60,
+    }));
+    const shifts = generateSchedule({
+      year: 2026,
+      month: 8,
+      storeId: "vietpho",
+      workHours: defaultWorkHoursForStore("vietpho"),
+      holidays: new Set<string>(),
+      employees: partTimers,
+      seed: "vietpho-many-short-visits",
+    });
+
+    for (const employee of partTimers) {
+      const employeeShifts = shifts.filter((shift) => shift.employeeId === employee.id);
+      expect(employeeShifts.length).toBeGreaterThanOrEqual(12);
+    }
+    expect(shifts.some((shift) => shift.paidMinutes <= 2 * 60)).toBe(true);
+  });
+
+  it("covers both Vietpho peak windows with at least two employees every open day", () => {
+    const shifts = generateSchedule({
+      year: 2026,
+      month: 8,
+      storeId: "vietpho",
+      workHours: defaultWorkHoursForStore("vietpho"),
+      holidays: new Set<string>(),
+      employees,
+      seed: "vietpho-peak-coverage",
+    });
+
+    for (const date of datesOfMonth(2026, 8)) {
+      for (const peak of vietphoPeakIntervals()) {
+        const covering = shifts.filter((shift) => {
+          if (shift.date !== date) return false;
+          return (shift.segments ?? [shift]).some(
+            (segment) =>
+              segment.startMinutes <= peak.startMinutes && segment.endMinutes >= peak.endMinutes,
+          );
+        });
+        expect(covering.length, `${date} ${peak.startMinutes}-${peak.endMinutes}`).toBeGreaterThanOrEqual(
+          peak.minStaff,
+        );
+      }
+    }
+  });
+
+  it("validates Vietpho peaks instead of the Thienlong pre-opening rule", () => {
+    const workHours = defaultWorkHoursForStore("vietpho");
+    const shifts = generateSchedule({
+      year: 2026,
+      month: 8,
+      storeId: "vietpho",
+      workHours,
+      holidays: new Set<string>(),
+      employees,
+      seed: "vietpho-validation",
+    });
+    const context = {
+      year: 2026,
+      month: 8,
+      storeId: "vietpho",
+      workHours,
+      holidayState: "BW" as const,
+    };
+
+    expect(validateSchedule(employees, shifts, context).errors).toEqual([]);
+
+    const date = "2026-08-03";
+    const dinner = vietphoPeakIntervals()[1];
+    const oneDinnerShift = shifts.find(
+      (shift) =>
+        shift.date === date &&
+        (shift.segments ?? [shift]).some(
+          (segment) =>
+            segment.startMinutes <= dinner.startMinutes && segment.endMinutes >= dinner.endMinutes,
+        ),
+    )!;
+    const invalid = shifts.filter((shift) => shift.id !== oneDinnerShift.id);
+    const errors = validateSchedule(employees, invalid, context).errors;
+
+    expect(errors.some((error) => error.message.includes("18:00–20:00"))).toBe(true);
+  });
+});

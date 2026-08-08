@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { Shift } from "../../types";
-import { shiftMinutesAfter20, zuschlagTotals } from "../zuschlaege";
+import {
+  calculateZuschlaege,
+  normalizeSurchargeConfig,
+  shiftMinutesAfter20,
+  zuschlagTotals,
+} from "../zuschlaege";
 
 function shift(patch: Partial<Shift>): Shift {
   return {
@@ -41,6 +46,43 @@ describe("Zuschlaege", () => {
     expect(zuschlagTotals([sunday, monday])).toEqual({
       after20Minutes: 4 * 60,
       sundayMinutes: 5.5 * 60,
+    });
+  });
+
+  it("stacks Sunday and after-20 percentages as bonus-equivalent minutes", () => {
+    const sunday = shift({
+      date: "2026-08-02",
+      startMinutes: 18 * 60,
+      endMinutes: 22 * 60,
+      paidMinutes: 4 * 60,
+    });
+
+    expect(
+      calculateZuschlaege([sunday], {
+        sundayPercent: 50,
+        after20Percent: 25,
+      }),
+    ).toEqual({
+      sundayMinutes: 4 * 60,
+      after20Minutes: 2 * 60,
+      sundayPercent: 50,
+      after20Percent: 25,
+      sundayBonusMinutes: 2 * 60,
+      after20BonusMinutes: 30,
+      totalBonusMinutes: 2.5 * 60,
+    });
+  });
+
+  it("uses zero percent for old or invalid surcharge settings", () => {
+    expect(normalizeSurchargeConfig(undefined)).toEqual({
+      after20Percent: 0,
+      sundayPercent: 0,
+    });
+    expect(
+      normalizeSurchargeConfig({ after20Percent: Number.NaN, sundayPercent: -10 }),
+    ).toEqual({
+      after20Percent: 0,
+      sundayPercent: 0,
     });
   });
 });
