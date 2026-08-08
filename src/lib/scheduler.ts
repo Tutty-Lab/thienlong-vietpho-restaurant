@@ -507,46 +507,59 @@ function customVietphoSplitShift(
   paidMinutes: number,
   blocks: ResolvedDay["blocks"],
 ): Shift | null {
-  if (blocks.length < 2 || paidMinutes < 2.5 * 60) return null;
-  const lunch = blocks[0];
-  const evening = blocks[blocks.length - 1];
+  if (paidMinutes < 2.5 * 60) return null;
   const lunchPeak = { startMinutes: 12 * 60 + 30, endMinutes: 13 * 60 };
   const eveningPeak = { startMinutes: 18 * 60, endMinutes: 20 * 60 };
+  const lunchIndex = blocks.findIndex(
+    (block) =>
+      block.startMinutes <= lunchPeak.startMinutes && block.endMinutes >= lunchPeak.endMinutes,
+  );
+  const eveningIndex = blocks.findIndex(
+    (block) =>
+      block.startMinutes <= eveningPeak.startMinutes && block.endMinutes >= eveningPeak.endMinutes,
+  );
+  if (lunchIndex < 0 || eveningIndex < 0) return null;
+
+  const lunch = blocks[lunchIndex];
+  const evening = blocks[eveningIndex];
+
+  const lunchCap = lunch.endMinutes - lunch.startMinutes;
+  const sameBlock = lunchIndex === eveningIndex;
+  const eveningCap =
+    evening.endMinutes - (sameBlock ? lunchPeak.endMinutes : evening.startMinutes);
+  const minimumLunchMinutes = lunchPeak.endMinutes - lunchPeak.startMinutes;
+  const minimumEveningMinutes = eveningPeak.endMinutes - eveningPeak.startMinutes;
+  const eveningMinutes = Math.min(paidMinutes - minimumLunchMinutes, eveningCap);
+  const lunchMinutes = paidMinutes - eveningMinutes;
   if (
-    lunch.startMinutes > lunchPeak.startMinutes ||
-    lunch.endMinutes < lunchPeak.endMinutes ||
-    evening.startMinutes > eveningPeak.startMinutes ||
-    evening.endMinutes < eveningPeak.endMinutes
+    lunchMinutes < minimumLunchMinutes ||
+    lunchMinutes > lunchCap ||
+    eveningMinutes < minimumEveningMinutes
   ) {
     return null;
   }
-
-  const lunchCap = lunch.endMinutes - lunch.startMinutes;
-  const eveningCap = evening.endMinutes - evening.startMinutes;
-  let lunchMinutes = lunchPeak.endMinutes - lunchPeak.startMinutes;
-  let eveningMinutes = eveningPeak.endMinutes - eveningPeak.startMinutes;
-  let remaining = paidMinutes - lunchMinutes - eveningMinutes;
-
-  const eveningExtra = Math.min(remaining, eveningCap - eveningMinutes);
-  eveningMinutes += eveningExtra;
-  remaining -= eveningExtra;
-  const lunchExtra = Math.min(remaining, lunchCap - lunchMinutes);
-  lunchMinutes += lunchExtra;
-  remaining -= lunchExtra;
-  if (remaining > 0) return null;
 
   let lunchStart = Math.max(lunch.startMinutes, lunchPeak.endMinutes - lunchMinutes);
   if (lunchStart + lunchMinutes > lunch.endMinutes) {
     lunchStart = lunch.endMinutes - lunchMinutes;
   }
-  let eveningStart = Math.max(evening.startMinutes, eveningPeak.endMinutes - eveningMinutes);
-  if (eveningStart + eveningMinutes > evening.endMinutes) {
-    eveningStart = evening.endMinutes - eveningMinutes;
-  }
+  const eveningStart = Math.max(
+    evening.startMinutes,
+    Math.min(eveningPeak.startMinutes, evening.endMinutes - eveningMinutes),
+  );
   const segments = [
     { startMinutes: lunchStart, endMinutes: lunchStart + lunchMinutes },
     { startMinutes: eveningStart, endMinutes: eveningStart + eveningMinutes },
   ];
+  if (
+    segments[0].startMinutes > lunchPeak.startMinutes ||
+    segments[0].endMinutes < lunchPeak.endMinutes ||
+    segments[1].startMinutes > eveningPeak.startMinutes ||
+    segments[1].endMinutes < eveningPeak.endMinutes ||
+    segments[0].endMinutes > segments[1].startMinutes
+  ) {
+    return null;
+  }
 
   return {
     id: nextShiftId(),

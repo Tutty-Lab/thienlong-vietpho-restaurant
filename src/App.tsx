@@ -108,10 +108,9 @@ function MainApp({ onLogout }: { onLogout: () => void }) {
           {tab === "einstellungen" && <SettingsTab store={store} />}
           {tab === "mitarbeiter" && <EmployeesTab store={store} />}
           {tab === "azubi" && <AzubiTab store={store} />}
+          {tab === "dienstplan" && <ScheduleTab store={store} />}
           {tab === "docs" && <DocsTab storeId={store.storeId} />}
         </div>
-        {/* Lịch làm việc có vùng in theo ngày nên phải nằm ngoài tổ tiên .no-print. */}
-        {tab === "dienstplan" && <ScheduleTab store={store} />}
         {/* Bảng chấm công chứa vùng in – luôn render khi tab active */}
         {tab === "stundenzettel" && <StundenzettelTab store={store} />}
       </main>

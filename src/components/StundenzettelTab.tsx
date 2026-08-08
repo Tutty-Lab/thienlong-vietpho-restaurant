@@ -1,29 +1,60 @@
-import { useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import type { UseScheduleReturn } from "../hooks/useSchedule";
 import type { Employee } from "../types";
 import { StundenzettelPage } from "./StundenzettelPage";
+import { DailySchedulePage } from "./DailySchedulePage";
 import { elementsToPdf, safeFileName } from "../lib/pdf";
+import { datesOfMonth, parseIsoDate, WEEKDAY_SHORT_VI, weekdayKeyOf } from "../lib/demand";
+import { isoLabel } from "../lib/shiftOps";
+
+function localIsoDate(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
 
 export function StundenzettelTab({ store }: { store: UseScheduleReturn }) {
   const { schedule } = store;
   const showThienlongExtras = store.storeId === "thienlong";
+  const dates = useMemo(
+    () => datesOfMonth(schedule.year, schedule.month),
+    [schedule.year, schedule.month],
+  );
   const [selectedId, setSelectedId] = useState<string>(schedule.employees[0]?.id ?? "");
+  const [selectedDate, setSelectedDate] = useState(() => {
+    const today = localIsoDate(new Date());
+    return dates.includes(today) ? today : dates[0];
+  });
   const [printList, setPrintList] = useState<Employee[] | null>(null);
+  const [printDate, setPrintDate] = useState<string | null>(null);
   const [pdfList, setPdfList] = useState<Employee[] | null>(null);
+  const [pdfDate, setPdfDate] = useState<string | null>(null);
   const [pdfBusy, setPdfBusy] = useState(false);
-  const pdfStage = useRef<HTMLDivElement>(null);
+  const timesheetPdfStage = useRef<HTMLDivElement>(null);
+  const dailyPdfStage = useRef<HTMLDivElement>(null);
 
   const selected =
     schedule.employees.find((e) => e.id === selectedId) ?? schedule.employees[0] ?? null;
 
   const monthTag = `${schedule.year}-${String(schedule.month).padStart(2, "0")}`;
 
+  useEffect(() => {
+    if (!dates.includes(selectedDate)) {
+      const today = localIsoDate(new Date());
+      setSelectedDate(dates.includes(today) ? today : dates[0]);
+    }
+  }, [dates, selectedDate]);
+
   // Vùng in phải được render TRƯỚC khi gọi print, và print phải nằm trong cùng
   // thao tác chạm (mobile chặn print ngoài gesture). flushSync render đồng bộ.
   function doPrint(list: Employee[]) {
     if (list.length === 0) return;
-    flushSync(() => setPrintList(list));
+    flushSync(() => {
+      setPrintDate(null);
+      setPrintList(list);
+    });
     window.print();
   }
 
@@ -37,13 +68,41 @@ export function StundenzettelTab({ store }: { store: UseScheduleReturn }) {
     flushSync(() => setPdfList(list));
     try {
       const pages = Array.from(
-        pdfStage.current?.querySelectorAll<HTMLElement>(".stundenzettel-page") ?? [],
+        timesheetPdfStage.current?.querySelectorAll<HTMLElement>(".stundenzettel-page") ?? [],
       );
       await elementsToPdf(pages, filename);
     } catch (err) {
       alert(`Không tạo được PDF: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setPdfList(null);
+      setPdfBusy(false);
+    }
+  }
+
+  function printSelectedDate() {
+    flushSync(() => {
+      setPrintList(null);
+      setPrintDate(selectedDate);
+    });
+    window.print();
+  }
+
+  async function exportSelectedDatePdf() {
+    if (pdfBusy) return;
+    setPdfBusy(true);
+    flushSync(() => setPdfDate(selectedDate));
+    try {
+      const pages = Array.from(
+        dailyPdfStage.current?.querySelectorAll<HTMLElement>(".daily-schedule-page") ?? [],
+      );
+      await elementsToPdf(
+        pages,
+        `Tagesdienstplan_${safeFileName(schedule.companyName || "Betrieb")}_${selectedDate}.pdf`,
+      );
+    } catch (err) {
+      alert(`Không tạo được PDF: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setPdfDate(null);
       setPdfBusy(false);
     }
   }
@@ -65,6 +124,45 @@ export function StundenzettelTab({ store }: { store: UseScheduleReturn }) {
     <>
       {/* Điều khiển (không in) */}
       <div className="no-print">
+        <div
+          aria-label="In hoặc xuất lịch làm việc theo ngày"
+          className="mb-4 flex flex-wrap items-end gap-2 rounded-lg border border-slate-200 bg-white p-3"
+        >
+          <label className="min-w-[190px] flex-1 text-sm text-slate-600">
+            <span className="mb-1 block text-xs font-medium text-slate-500">Ngày cần in / xuất</span>
+            <select
+              value={selectedDate}
+              onChange={(event) => setSelectedDate(event.target.value)}
+              className="w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800"
+            >
+              {dates.map((date) => (
+                <option key={date} value={date}>
+                  {WEEKDAY_SHORT_VI[weekdayKeyOf(parseIsoDate(date))]} · {isoLabel(date)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button
+            type="button"
+            disabled={pdfBusy}
+            onClick={() => void exportSelectedDatePdf()}
+            className="w-full rounded bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 active:bg-slate-800 disabled:opacity-40 sm:w-auto"
+          >
+            Xuất PDF — ngày đã chọn
+          </button>
+          <button
+            type="button"
+            disabled={pdfBusy}
+            onClick={printSelectedDate}
+            className="w-full rounded border border-slate-300 bg-white px-4 py-2 text-sm hover:bg-slate-50 disabled:opacity-40 sm:w-auto"
+          >
+            In — ngày đã chọn
+          </button>
+          {pdfBusy && pdfDate && (
+            <span className="self-center text-sm text-slate-500">Đang tạo PDF…</span>
+          )}
+        </div>
+
         <div className="flex flex-wrap items-center gap-2 mb-3">
           <label className="text-sm text-slate-600">Nhân viên:</label>
           <select
@@ -116,7 +214,7 @@ export function StundenzettelTab({ store }: { store: UseScheduleReturn }) {
           >
             In — tất cả
           </button>
-          {pdfBusy && (
+          {pdfBusy && !pdfDate && (
             <span className="text-sm text-slate-500">Đang tạo PDF…</span>
           )}
         </div>
@@ -148,12 +246,13 @@ export function StundenzettelTab({ store }: { store: UseScheduleReturn }) {
             schedule={schedule}
             employee={emp}
             showThienlongExtras={showThienlongExtras}
-          />
-        ))}
+            />
+          ))}
+        {printDate && <DailySchedulePage schedule={schedule} date={printDate} />}
       </div>
 
       {/* Sân khấu ngoài màn hình – chỉ có nội dung trong lúc tạo PDF */}
-      <div ref={pdfStage} aria-hidden="true" className="pdf-stage no-print">
+      <div ref={timesheetPdfStage} aria-hidden="true" className="pdf-stage no-print">
         {(pdfList ?? []).map((emp) => (
           <StundenzettelPage
             key={emp.id}
@@ -162,6 +261,10 @@ export function StundenzettelTab({ store }: { store: UseScheduleReturn }) {
             showThienlongExtras={showThienlongExtras}
           />
         ))}
+      </div>
+
+      <div ref={dailyPdfStage} aria-hidden="true" className="pdf-stage no-print">
+        {pdfDate && <DailySchedulePage schedule={schedule} date={pdfDate} />}
       </div>
     </>
   );

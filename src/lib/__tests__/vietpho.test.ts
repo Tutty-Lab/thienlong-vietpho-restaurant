@@ -118,6 +118,55 @@ describe("Vietpho scheduling profile", () => {
     }
   });
 
+  it("covers both peaks for the current four-person Vietpho staffing mix", () => {
+    const currentEmployees: Employee[] = [
+      {
+        id: "emp-1786085122788-730395",
+        name: "Thi Hen Doan",
+        employmentType: "TEILZEIT",
+        targetMinutes: 80 * 60,
+      },
+      {
+        id: "emp-1786085136655-748904",
+        name: "Thi Con Nga Doan",
+        employmentType: "TEILZEIT",
+        targetMinutes: 140 * 60,
+      },
+      {
+        id: "emp-1786085166424-106408",
+        name: "Dinh Thuc Hoang",
+        employmentType: "VOLLZEIT",
+        targetMinutes: 168 * 60,
+      },
+      {
+        id: "emp-1786085188261-602265",
+        name: "Thuy Loan Pham Thi",
+        employmentType: "TEILZEIT",
+        targetMinutes: 20 * 60,
+        fixedStoreWeekPattern: true,
+      },
+    ];
+    const workHours = defaultWorkHoursForStore("vietpho");
+    const shifts = generateSchedule({
+      year: 2026,
+      month: 8,
+      storeId: "vietpho",
+      workHours,
+      holidays: new Set<string>(),
+      employees: currentEmployees,
+    });
+
+    expect(
+      validateSchedule(currentEmployees, shifts, {
+        year: 2026,
+        month: 8,
+        storeId: "vietpho",
+        workHours,
+        holidayState: "BW",
+      }).errors,
+    ).toEqual([]);
+  });
+
   it("validates Vietpho peaks instead of the Thienlong pre-opening rule", () => {
     const workHours = defaultWorkHoursForStore("vietpho");
     const shifts = generateSchedule({
@@ -141,15 +190,17 @@ describe("Vietpho scheduling profile", () => {
 
     const date = "2026-08-03";
     const dinner = vietphoPeakIntervals()[1];
-    const oneDinnerShift = shifts.find(
+    const dinnerShifts = shifts.filter(
       (shift) =>
         shift.date === date &&
         (shift.segments ?? [shift]).some(
           (segment) =>
             segment.startMinutes <= dinner.startMinutes && segment.endMinutes >= dinner.endMinutes,
         ),
-    )!;
-    const invalid = shifts.filter((shift) => shift.id !== oneDinnerShift.id);
+    );
+    const invalid = shifts.filter(
+      (shift) => shift.date !== date || shift.id === dinnerShifts[0]?.id,
+    );
     const errors = validateSchedule(employees, invalid, context).errors;
 
     expect(errors.some((error) => error.message.includes("18:00–20:00"))).toBe(true);
