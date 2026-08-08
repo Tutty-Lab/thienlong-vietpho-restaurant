@@ -44,6 +44,7 @@ import {
   thienlongDemandIntervals,
   thienlongDemandWeight,
   thienlongLateShiftRatio,
+  thienlongStaffingProfile,
 } from "./thienlongDemand";
 import {
   vietphoDemandIntervals,
@@ -94,6 +95,8 @@ type SchedulerState = {
   employeesById: Map<string, Employee>;
   isThienlong: boolean;
   isVietpho: boolean;
+  /** Current workforce has enough monthly hours for the 6-7 / 7-8 staffing bands. */
+  useThienlongStaffingBands: boolean;
   /** Aufgelöster Tag (geschlossen? + Arbeitszeit-Fenster) für ein Datum. */
   dayOf: (isoDate: string) => ResolvedDay;
   rng: () => number;
@@ -106,6 +109,70 @@ function windowLength(day: ResolvedDay): number {
   // Maßgeblich ist der LÄNGSTE Block – eine Schicht muss komplett in einen
   // Block passen und darf nie über die Mittagsschließung laufen.
   return longestBlockMinutes(day);
+}
+
+/**
+ * Thienlong keeps a quiet-day floor for the current 12-person workforce.
+ * The floor only changes the distribution target; employee monthly minutes
+ * remain the source of truth and are still assigned exactly.
+ */
+function buildThienlongRawTargets(
+  dates: readonly string[],
+  totalTargetMinutes: number,
+  weightOf: (isoDate: string) => number,
+  dayOf: (isoDate: string) => ResolvedDay,
+  holidays: Set<string>,
+): Map<string, number> {
+  const openDates = dates.filter((date) => !dayOf(date).closed && weightOf(date) > 0);
+  const weightedTotal = openDates.reduce((sum, date) => sum + weightOf(date), 0);
+  const weighted = new Map<string, number>(
+    dates.map((date) => [
+      date,
+      weightedTotal > 0 ? (totalTargetMinutes * weightOf(date)) / weightedTotal : 0,
+    ]),
+  );
+
+  const quietDates = openDates.filter((date) => {
+    const profile = thienlongStaffingProfile(
+      weekdayKeyOf(parseIsoDate(date)),
+      holidays.has(date),
+    );
+    return profile.minHours > 0;
+  });
+  if (quietDates.length === 0) return weighted;
+
+  const busyDates = openDates.filter((date) => !quietDates.includes(date));
+
+  const quietFloor = 55 * 60;
+  const quietCeiling = 60 * 60;
+  const busyFloor = 50 * 60;
+  // If the selected employee targets cannot cover the floor, retain the
+  // proportional model instead of making an impossible promise.
+  if (
+    totalTargetMinutes <
+    quietDates.length * quietFloor + busyDates.length * busyFloor
+  ) {
+    return weighted;
+  }
+
+  const result = new Map(weighted);
+  const quietMinutes = quietDates.reduce((sum, date) => {
+    const target = Math.min(
+      quietCeiling,
+      Math.max(quietFloor, weighted.get(date) ?? 0),
+    );
+    result.set(date, target);
+    return sum + target;
+  }, 0);
+
+  const remaining = totalTargetMinutes - quietMinutes;
+  if (remaining < 0 || busyDates.length === 0) return weighted;
+
+  const busyWeight = busyDates.reduce((sum, date) => sum + weightOf(date), 0);
+  for (const date of busyDates) {
+    result.set(date, busyWeight > 0 ? (remaining * weightOf(date)) / busyWeight : 0);
+  }
+  return result;
 }
 
 let shiftIdCounter = 0;
@@ -838,6 +905,14 @@ function placeOneShift(state: SchedulerState, employee: Employee): boolean {
     const day = state.dayOf(isoDate);
     if (day.closed) continue; // Betriebsruhe -> kein Dienst
     const weekKey = weekKeyOf(isoDate);
+    const ds = state.dateState.get(isoDate)!;
+    const staffingProfile = state.isThienlong
+      ? thienlongStaffingProfile(
+          weekdayKeyOf(parseIsoDate(isoDate)),
+          state.holidays.has(isoDate),
+        )
+      : null;
+    if (staffingProfile && ds.count >= staffingProfile.maxStaff) continue;
 
     // Azubi-Wochendecke: was in dieser Woche noch frei ist.
     let dayCapMinutes = maxPaidForDay(day);
@@ -881,7 +956,6 @@ function placeOneShift(state: SchedulerState, employee: Employee): boolean {
       break;
     }
 
-    const ds = state.dateState.get(isoDate)!;
     const deficitHours = (state.rawTarget.get(isoDate)! - ds.totalPaid) / 60;
     const dayWeight = state.isThienlong
       ? thienlongDemandWeight(
@@ -895,6 +969,12 @@ function placeOneShift(state: SchedulerState, employee: Employee): boolean {
           )
         : DAY_WEIGHTS[state.effKeyOf(isoDate)];
     const uncoveredRoleHours = roleGapHours(state, employee, isoDate);
+    const staffingGap = staffingProfile && state.useThienlongStaffingBands
+      ? Math.max(0, staffingProfile.minStaff - ds.count)
+      : 0;
+    const staffingOverflow = staffingProfile && state.useThienlongStaffingBands
+      ? Math.max(0, ds.count - staffingProfile.minStaff)
+      : 0;
 
     const consecutivePenalty = runLength >= 5 ? (runLength - 4) * 8 : 0;
     const weekendPenalty = isWeekend(isoDate) ? weekendCount * 1.5 : 0;
@@ -911,6 +991,8 @@ function placeOneShift(state: SchedulerState, employee: Employee): boolean {
       consecutivePenalty -
       weekendPenalty -
       weekBalancePenalty +
+      staffingGap * 10 -
+      staffingOverflow * 3 +
       uncoveredRoleHours * 1.5 +
       jitter;
 
@@ -955,6 +1037,107 @@ function removeShift(state: SchedulerState, shift: Shift): void {
   if (idx >= 0) state.shifts.splice(idx, 1);
 }
 
+function thienlongDateCost(state: SchedulerState, isoDate: string): number {
+  const ds = state.dateState.get(isoDate)!;
+  const profile = thienlongStaffingProfile(
+    weekdayKeyOf(parseIsoDate(isoDate)),
+    state.holidays.has(isoDate),
+  );
+  const hours = ds.totalPaid / 60;
+  const rawHours = (state.rawTarget.get(isoDate) ?? 0) / 60;
+  const underHours = state.useThienlongStaffingBands
+    ? Math.max(0, profile.minHours - hours)
+    : 0;
+  const overHours = state.useThienlongStaffingBands
+    ? Math.max(0, hours - profile.maxHours)
+    : 0;
+  const underStaff = state.useThienlongStaffingBands
+    ? Math.max(0, profile.minStaff - ds.count)
+    : 0;
+  const overStaff = Math.max(0, ds.count - profile.maxStaff);
+
+  let cost =
+    Math.abs(hours - rawHours) +
+    underHours * 30 +
+    overHours * 30 +
+    underStaff * 50 +
+    overStaff * 2_000;
+
+  for (const role of ["KITCHEN", "SERVICE"] as const) {
+    const employee = [...state.employeesById.values()].find((item) => item.workRole === role);
+    if (!employee) continue;
+    const demand = roleDemandOf(state, employee, isoDate) ?? [];
+    const shifts = roleShiftsOnDate(state, employee, isoDate);
+    cost += demandCoverageGap(shifts, demand) / 60 / 4;
+  }
+
+  return cost;
+}
+
+/**
+ * Moves existing Thienlong shifts between dates until the requested staffing
+ * bands are closer, without changing any employee target or stored setting.
+ */
+function repairThienlongStaffing(state: SchedulerState): void {
+  const MAX_MOVES = 80;
+  for (let pass = 0; pass < MAX_MOVES; pass++) {
+    let best: { shift: Shift; target: string; delta: number } | null = null;
+
+    for (const shift of [...state.shifts]) {
+      const employee = state.employeesById.get(shift.employeeId)!;
+      if (employee.fixedStoreWeekPattern) continue;
+      const from = shift.date;
+      const worked = state.worked.get(employee.id)!;
+
+      for (const to of state.dates) {
+        if (to === from || worked.has(to)) continue;
+        const day = state.dayOf(to);
+        if (day.closed || maxPaidForDay(day) < shift.paidMinutes) continue;
+
+        const targetProfile = thienlongStaffingProfile(
+          weekdayKeyOf(parseIsoDate(to)),
+          state.holidays.has(to),
+        );
+        if (state.dateState.get(to)!.count >= targetProfile.maxStaff) continue;
+
+        const trialWorked = new Set(worked);
+        trialWorked.delete(from);
+        if (consecutiveRunLengthWith(trialWorked, to) > 6) continue;
+
+        const weekCap = weeklyCapMinutes(employee);
+        if (weekCap !== null) {
+          const weekMinutes = state.weekMinutes.get(employee.id)!;
+          const fromWeek = weekKeyOf(from);
+          const toWeek = weekKeyOf(to);
+          const usedAfterMove =
+            (weekMinutes.get(toWeek) ?? 0) +
+            shift.paidMinutes -
+            (fromWeek === toWeek ? shift.paidMinutes : 0);
+          if (usedAfterMove > weekCap) continue;
+        }
+
+        const before = thienlongDateCost(state, from) + thienlongDateCost(state, to);
+        removeShift(state, shift);
+        const candidate = makeRoleAwareShift(state, employee, to, shift.paidMinutes);
+        applyShift(state, candidate);
+        const after = thienlongDateCost(state, from) + thienlongDateCost(state, to);
+        removeShift(state, candidate);
+        applyShift(state, shift);
+
+        const delta = after - before;
+        if (delta < -1e-6 && (!best || delta < best.delta)) {
+          best = { shift, target: to, delta };
+        }
+      }
+    }
+
+    if (!best) break;
+    const employee = state.employeesById.get(best.shift.employeeId)!;
+    removeShift(state, best.shift);
+    applyShift(state, makeRoleAwareShift(state, employee, best.target, best.shift.paidMinutes));
+  }
+}
+
 /**
  * Reparaturlauf: verschiebt einzelne Schichten auf andere Tage, wenn dadurch
  * die Tagesnachfrage besser getroffen wird. Ändert nie die Dauer eines Tokens
@@ -982,6 +1165,13 @@ function repairDemand(state: SchedulerState, employeesById: Map<string, Employee
         if (to === from || worked.has(to)) continue;
         const day = state.dayOf(to);
         if (day.closed || maxPaidForDay(day) < shift.paidMinutes) continue; // passt nicht
+        if (state.isThienlong) {
+          const profile = thienlongStaffingProfile(
+            weekdayKeyOf(parseIsoDate(to)),
+            state.holidays.has(to),
+          );
+          if (state.dateState.get(to)!.count >= profile.maxStaff) continue;
+        }
         // Regeln prüfen, als ob die alte Schicht bereits entfernt wäre.
         const trial = new Set(worked);
         trial.delete(from);
@@ -1265,10 +1455,26 @@ export function generateSchedule(input: GenerateInput): Shift[] {
   const totalTargetMin = employees.reduce((sum, e) => sum + e.targetMinutes, 0);
   const totalWeight = dates.reduce((sum, d) => sum + weightOf(d), 0);
 
-  const rawTarget = new Map<string, number>();
-  for (const d of dates) {
-    rawTarget.set(d, totalWeight > 0 ? (totalTargetMin * weightOf(d)) / totalWeight : 0);
-  }
+  const rawTarget = isThienlong
+    ? buildThienlongRawTargets(dates, totalTargetMin, weightOf, dayOf, holidays)
+    : new Map<string, number>(
+        dates.map((d) => [
+          d,
+          totalWeight > 0 ? (totalTargetMin * weightOf(d)) / totalWeight : 0,
+        ]),
+      );
+  const thienlongQuietDates = isThienlong
+    ? dates.filter((date) => {
+        if (dayOf(date).closed) return false;
+        return thienlongStaffingProfile(
+          weekdayKeyOf(parseIsoDate(date)),
+          holidays.has(date),
+        ).minHours > 0;
+      })
+    : [];
+  const useThienlongStaffingBands =
+    thienlongQuietDates.length > 0 &&
+    thienlongQuietDates.every((date) => (rawTarget.get(date) ?? 0) >= 55 * 60);
 
   const dateState = new Map<string, DateState>();
   const worked = new Map<string, Set<string>>();
@@ -1311,6 +1517,7 @@ export function generateSchedule(input: GenerateInput): Shift[] {
       employeesById,
       isThienlong,
       isVietpho,
+      useThienlongStaffingBands,
       dayOf,
       rng: seededRandom(seed + salt),
       varyLengths,
@@ -1349,6 +1556,9 @@ export function generateSchedule(input: GenerateInput): Shift[] {
   }
 
   repairDemand(state, employeesById);
+  if (state.isThienlong && state.useThienlongStaffingBands) {
+    repairThienlongStaffing(state);
+  }
   if (state.isVietpho) balanceVietphoPeaks(state);
   else balanceShiftTypes(state);
 

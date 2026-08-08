@@ -65,11 +65,12 @@ describe("Thienlong role demand profile", () => {
     ]);
   });
 
-  it("keeps Friday and Saturday busiest while Sunday is only slightly above weekdays", () => {
-    expect(thienlongDemandWeight("friday")).toBe(thienlongDemandWeight("saturday"));
+  it("uses a 1:1.3 base demand ratio for quiet versus busy days", () => {
+    expect(thienlongDemandWeight("friday")).toBeCloseTo(1.3);
+    expect(thienlongDemandWeight("saturday")).toBeCloseTo(1.3);
+    expect(thienlongDemandWeight("sunday")).toBeCloseTo(1.3);
     expect(thienlongLateShiftRatio("friday")).toBe(thienlongLateShiftRatio("saturday"));
-    expect(thienlongDemandWeight("sunday")).toBeGreaterThan(thienlongDemandWeight("monday"));
-    expect(thienlongDemandWeight("sunday")).toBeLessThan(thienlongDemandWeight("friday"));
+    expect(thienlongDemandWeight("monday")).toBe(1);
     expect(thienlongLateShiftRatio("sunday")).toBeGreaterThan(thienlongLateShiftRatio("monday"));
     expect(thienlongLateShiftRatio("sunday")).toBeLessThan(thienlongLateShiftRatio("friday"));
   });

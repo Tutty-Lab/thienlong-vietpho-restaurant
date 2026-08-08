@@ -15,6 +15,16 @@ export type RoleDemandShareInterval = {
   share: number;
 };
 
+export type ThienlongStaffingProfile = {
+  /** Soft lower bound used to spread visits across the day. */
+  minStaff: number;
+  /** Hard upper bound for people assigned to one date. */
+  maxStaff: number;
+  /** Preferred paid-hour band for a quiet day. */
+  minHours: number;
+  maxHours: number;
+};
+
 type ReferenceInterval = {
   startMinutes: number;
   endMinutes: number;
@@ -139,12 +149,22 @@ export function thienlongDemandIntervals(
   }));
 }
 
-/** Freitag und Samstag sind am stärksten; Sonntag liegt nur leicht über Mo-Do. */
+/** Mo-Do are the base; Friday through Sunday use about 1.3x demand priority. */
 export function thienlongDemandWeight(weekday: WeekdayKey, isHoliday = false): number {
-  if (isHoliday) return 1.5;
-  if (weekday === "friday" || weekday === "saturday") return 1.5;
-  if (weekday === "sunday") return 1.1;
+  if (isHoliday) return 1.3;
+  if (weekday === "friday" || weekday === "saturday" || weekday === "sunday") return 1.3;
   return 1;
+}
+
+/** Staffing bands for the current Thienlong workforce shape. */
+export function thienlongStaffingProfile(
+  weekday: WeekdayKey,
+  isHoliday = false,
+): ThienlongStaffingProfile {
+  const busy = isHoliday || weekday === "friday" || weekday === "saturday" || weekday === "sunday";
+  return busy
+    ? { minStaff: 7, maxStaff: 8, minHours: 0, maxHours: Number.POSITIVE_INFINITY }
+    : { minStaff: 6, maxStaff: 7, minHours: 55, maxHours: 60 };
 }
 
 export function thienlongLateShiftRatio(weekday: WeekdayKey, isHoliday = false): number {

@@ -283,7 +283,7 @@ export function DocsTab({ storeId }: { storeId: string }) {
           <br />
           {isThienlong ? (
             <>
-              <b>Thứ 6 và Thứ 7</b> đông nhất; <b>Chủ Nhật</b> chỉ nhỉnh hơn Thứ 2–Thứ 5.
+              <b>Thứ 2–Thứ 5</b> dùng mức nền 1,00; <b>Thứ 6–Thứ 7–Chủ Nhật</b> dùng mức 1,30.
             </>
           ) : (
             <>
@@ -293,6 +293,13 @@ export function DocsTab({ storeId }: { storeId: string }) {
           Ngày{" "}
           <b>đóng cửa</b> có trọng số 0 (không xếp giờ, giờ dồn sang ngày khác).
         </p>
+        {isThienlong && (
+          <p className="text-slate-600">
+            Với quy mô nhân sự hiện tại, Thứ 2–Thứ 5 được cân về khoảng <b>6–7 người</b> và
+            trung bình <b>55–60 giờ/ngày</b>. Thứ 6–Thứ 7–Chủ Nhật có trần cứng
+            <b> 8 người/ngày</b>; thuật toán không thay đổi định mức hay thông tin đã lưu của nhân viên.
+          </p>
+        )}
       </Section>
 
       <Section title="2) Tỉ lệ ca tối vs ca sáng">

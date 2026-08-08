@@ -77,7 +77,7 @@ describe("Thienlong role-aware scheduling", () => {
     const saturdayAverage = averageScheduledHours(thienlong, ["saturday"]);
 
     expect(sundayAverage).toBeGreaterThan(quietDayAverage);
-    expect(fridayAverage).toBeGreaterThan(sundayAverage);
-    expect(saturdayAverage).toBeGreaterThan(sundayAverage);
+    expect(fridayAverage).toBeGreaterThan(quietDayAverage);
+    expect(saturdayAverage).toBeGreaterThan(quietDayAverage);
   });
 });
