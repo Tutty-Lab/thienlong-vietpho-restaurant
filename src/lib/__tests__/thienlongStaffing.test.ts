@@ -20,7 +20,7 @@ const currentThienlongEmployees: Employee[] = [
 ];
 
 describe("Thienlong staffing bands", () => {
-  it("keeps the current employee targets exact and limits busy days to eight people", () => {
+  it("keeps employee targets exact and separates quiet, Friday/Saturday, and Sunday demand", () => {
     const employeeSnapshot = structuredClone(currentThienlongEmployees);
     const shifts = generateSchedule({
       year: 2026,
@@ -50,24 +50,36 @@ describe("Thienlong staffing bands", () => {
 
     const quietHours: number[] = [];
     const busyHours: number[] = [];
+    const fridaySaturdayHours: number[] = [];
+    const sundayHours: number[] = [];
     for (const [date, item] of stats) {
       const weekday = weekdayKeyOf(parseIsoDate(date));
       if (["monday", "tuesday", "wednesday", "thursday"].includes(weekday)) {
         expect(item.people.size, date).toBeGreaterThanOrEqual(6);
         expect(item.people.size, date).toBeLessThanOrEqual(7);
-        expect(item.minutes / 60, date).toBeGreaterThanOrEqual(52);
+        // The 1.35/1.2 weighting takes priority when the monthly target is
+        // too small to keep every quiet day at 55h.
+        expect(item.minutes / 60, date).toBeGreaterThanOrEqual(48);
         expect(item.minutes / 60, date).toBeLessThanOrEqual(60);
         quietHours.push(item.minutes / 60);
       } else {
         expect(item.people.size, date).toBeLessThanOrEqual(8);
-        busyHours.push(item.minutes / 60);
+        const hours = item.minutes / 60;
+        busyHours.push(hours);
+        if (["friday", "saturday"].includes(weekday)) fridaySaturdayHours.push(hours);
+        else sundayHours.push(hours);
       }
     }
 
     const average = (values: number[]) => values.reduce((sum, value) => sum + value, 0) / values.length;
-    expect(average(quietHours)).toBeGreaterThanOrEqual(55);
-    expect(average(quietHours)).toBeLessThanOrEqual(60);
-    expect(average(busyHours)).toBeGreaterThan(average(quietHours));
+    const quietAverage = average(quietHours);
+    const busyAverage = average(busyHours);
+    expect(quietAverage).toBeGreaterThanOrEqual(48);
+    expect(quietAverage).toBeLessThanOrEqual(55);
+    expect(busyAverage).toBeGreaterThan(quietAverage);
+
+    expect(average(fridaySaturdayHours)).toBeGreaterThan(average(sundayHours));
+    expect(average(sundayHours)).toBeGreaterThan(quietAverage);
   });
 
   it.each([1, 12])("keeps the staffing caps in month %s", (month) => {

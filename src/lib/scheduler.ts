@@ -97,6 +97,8 @@ type SchedulerState = {
   isVietpho: boolean;
   /** Current workforce has enough monthly hours for the 6-7 / 7-8 staffing bands. */
   useThienlongStaffingBands: boolean;
+  /** Current workforce has enough visits to keep the requested headcount floor. */
+  useThienlongStaffingCounts: boolean;
   /** Aufgelöster Tag (geschlossen? + Arbeitszeit-Fenster) für ein Datum. */
   dayOf: (isoDate: string) => ResolvedDay;
   rng: () => number;
@@ -112,9 +114,9 @@ function windowLength(day: ResolvedDay): number {
 }
 
 /**
- * Thienlong keeps a quiet-day floor for the current 12-person workforce.
- * The floor only changes the distribution target; employee monthly minutes
- * remain the source of truth and are still assigned exactly.
+ * Thienlong follows the configured weekday ratios first. The 55-60 hour
+ * quiet-day band is only activated when the selected monthly targets can
+ * support it without flattening the Friday/Saturday/Sunday ratios.
  */
 function buildThienlongRawTargets(
   dates: readonly string[],
@@ -141,19 +143,15 @@ function buildThienlongRawTargets(
   });
   if (quietDates.length === 0) return weighted;
 
-  const busyDates = openDates.filter((date) => !quietDates.includes(date));
-
   const quietFloor = 55 * 60;
   const quietCeiling = 60 * 60;
-  const busyFloor = 50 * 60;
-  // If the selected employee targets cannot cover the floor, retain the
-  // proportional model instead of making an impossible promise.
-  if (
-    totalTargetMinutes <
-    quietDates.length * quietFloor + busyDates.length * busyFloor
-  ) {
+  // Retain the proportional model when raising quiet days to the floor would
+  // consume hours intended for the higher-weight Friday/Saturday/Sunday days.
+  if (quietDates.some((date) => (weighted.get(date) ?? 0) < quietFloor)) {
     return weighted;
   }
+
+  const busyDates = openDates.filter((date) => !quietDates.includes(date));
 
   const result = new Map(weighted);
   const quietMinutes = quietDates.reduce((sum, date) => {
@@ -231,7 +229,7 @@ const VIETPHO_ALL_HOURS = VIETPHO_ALLOWED_HOURS.TEILZEIT;
 
 function allowedHoursFor(
   employmentType: Employee["employmentType"],
-  profile: "default" | "vietpho",
+  profile: "default" | "thienlong" | "vietpho",
 ): readonly number[] {
   return profile === "vietpho"
     ? VIETPHO_ALLOWED_HOURS[employmentType]
@@ -296,7 +294,7 @@ function chooseFixedPatternHours(
   remainingMinutes: number,
   maxHours: number,
   employmentType: Employee["employmentType"],
-  profile: "default" | "vietpho",
+  profile: "default" | "thienlong" | "vietpho",
   shiftsLeft: number,
 ): number {
   if (shiftsLeft <= 0) return 0;
@@ -349,7 +347,7 @@ export function chooseShiftHours(
   needHours = 8,
   /** Ohne Zufallsquelle wird deterministisch die kürzeste taugliche gewählt. */
   rng?: () => number,
-  profile: "default" | "vietpho" = "default",
+  profile: "default" | "thienlong" | "vietpho" = "default",
 ): number {
   const remainingHours = remainingMinutes / 60;
   const allowedByType = profile === "vietpho" ? VIETPHO_ALLOWED_HOURS : ALLOWED_HOURS;
@@ -403,7 +401,11 @@ export function chooseShiftHours(
     return shortPool[Math.floor(rng() * shortPool.length)];
   }
 
-  if (!rng) return pool[pool.length - 1];
+  if (!rng) {
+    return profile === "thienlong"
+      ? pool[Math.max(0, pool.length - 2)]
+      : pool[pool.length - 1];
+  }
 
   // „Bester von zwei Würfen": erzeugt Abwechslung, gewichtet aber zugunsten
   // längerer Schichten. Rein gleichverteilt würden zu viele kurze Schichten
@@ -924,7 +926,7 @@ function placeOneShift(state: SchedulerState, employee: Employee): boolean {
     }
 
     // Längste Schicht, die ins Fenster passt UND den Rest exakt aufteilbar lässt.
-    const profile = state.isVietpho ? "vietpho" : "default";
+    const profile = state.isVietpho ? "vietpho" : state.isThienlong ? "thienlong" : "default";
     const hours = employee.fixedStoreWeekPattern
       ? chooseFixedPatternHours(
           remaining,
@@ -969,10 +971,10 @@ function placeOneShift(state: SchedulerState, employee: Employee): boolean {
           )
         : DAY_WEIGHTS[state.effKeyOf(isoDate)];
     const uncoveredRoleHours = roleGapHours(state, employee, isoDate);
-    const staffingGap = staffingProfile && state.useThienlongStaffingBands
+    const staffingGap = staffingProfile && state.useThienlongStaffingCounts
       ? Math.max(0, staffingProfile.minStaff - ds.count)
       : 0;
-    const staffingOverflow = staffingProfile && state.useThienlongStaffingBands
+    const staffingOverflow = staffingProfile && state.useThienlongStaffingCounts
       ? Math.max(0, ds.count - staffingProfile.minStaff)
       : 0;
 
@@ -1037,13 +1039,18 @@ function removeShift(state: SchedulerState, shift: Shift): void {
   if (idx >= 0) state.shifts.splice(idx, 1);
 }
 
-function thienlongDateCost(state: SchedulerState, isoDate: string): number {
+function thienlongDateCost(
+  state: SchedulerState,
+  isoDate: string,
+  paidDelta = 0,
+  countDelta = 0,
+): number {
   const ds = state.dateState.get(isoDate)!;
   const profile = thienlongStaffingProfile(
     weekdayKeyOf(parseIsoDate(isoDate)),
     state.holidays.has(isoDate),
   );
-  const hours = ds.totalPaid / 60;
+  const hours = (ds.totalPaid + paidDelta) / 60;
   const rawHours = (state.rawTarget.get(isoDate) ?? 0) / 60;
   const underHours = state.useThienlongStaffingBands
     ? Math.max(0, profile.minHours - hours)
@@ -1051,25 +1058,18 @@ function thienlongDateCost(state: SchedulerState, isoDate: string): number {
   const overHours = state.useThienlongStaffingBands
     ? Math.max(0, hours - profile.maxHours)
     : 0;
-  const underStaff = state.useThienlongStaffingBands
-    ? Math.max(0, profile.minStaff - ds.count)
+  const count = ds.count + countDelta;
+  const underStaff = state.useThienlongStaffingCounts
+    ? Math.max(0, profile.minStaff - count)
     : 0;
-  const overStaff = Math.max(0, ds.count - profile.maxStaff);
+  const overStaff = Math.max(0, count - profile.maxStaff);
 
-  let cost =
+  const cost =
     Math.abs(hours - rawHours) +
     underHours * 30 +
     overHours * 30 +
     underStaff * 50 +
     overStaff * 2_000;
-
-  for (const role of ["KITCHEN", "SERVICE"] as const) {
-    const employee = [...state.employeesById.values()].find((item) => item.workRole === role);
-    if (!employee) continue;
-    const demand = roleDemandOf(state, employee, isoDate) ?? [];
-    const shifts = roleShiftsOnDate(state, employee, isoDate);
-    cost += demandCoverageGap(shifts, demand) / 60 / 4;
-  }
 
   return cost;
 }
@@ -1079,17 +1079,30 @@ function thienlongDateCost(state: SchedulerState, isoDate: string): number {
  * bands are closer, without changing any employee target or stored setting.
  */
 function repairThienlongStaffing(state: SchedulerState): void {
-  const MAX_MOVES = 80;
+  const MAX_MOVES = state.dates.length;
   for (let pass = 0; pass < MAX_MOVES; pass++) {
     let best: { shift: Shift; target: string; delta: number } | null = null;
+    const underfilledDates = state.dates.filter((date) => {
+      if (state.dayOf(date).closed) return false;
+      const profile = thienlongStaffingProfile(
+        weekdayKeyOf(parseIsoDate(date)),
+        state.holidays.has(date),
+      );
+      return state.dateState.get(date)!.count < profile.minStaff;
+    });
+    const targetDates = underfilledDates.length > 0
+      ? underfilledDates
+      : state.useThienlongStaffingBands
+        ? state.dates
+        : [];
+    if (targetDates.length === 0) break;
 
-    for (const shift of [...state.shifts]) {
-      const employee = state.employeesById.get(shift.employeeId)!;
-      if (employee.fixedStoreWeekPattern) continue;
-      const from = shift.date;
-      const worked = state.worked.get(employee.id)!;
-
-      for (const to of state.dates) {
+    for (const to of targetDates) {
+      for (const shift of [...state.shifts]) {
+        const employee = state.employeesById.get(shift.employeeId)!;
+        if (employee.fixedStoreWeekPattern) continue;
+        const from = shift.date;
+        const worked = state.worked.get(employee.id)!;
         if (to === from || worked.has(to)) continue;
         const day = state.dayOf(to);
         if (day.closed || maxPaidForDay(day) < shift.paidMinutes) continue;
@@ -1099,6 +1112,13 @@ function repairThienlongStaffing(state: SchedulerState): void {
           state.holidays.has(to),
         );
         if (state.dateState.get(to)!.count >= targetProfile.maxStaff) continue;
+        if (state.useThienlongStaffingCounts) {
+          const sourceProfile = thienlongStaffingProfile(
+            weekdayKeyOf(parseIsoDate(from)),
+            state.holidays.has(from),
+          );
+          if (state.dateState.get(from)!.count <= sourceProfile.minStaff) continue;
+        }
 
         const trialWorked = new Set(worked);
         trialWorked.delete(from);
@@ -1117,12 +1137,9 @@ function repairThienlongStaffing(state: SchedulerState): void {
         }
 
         const before = thienlongDateCost(state, from) + thienlongDateCost(state, to);
-        removeShift(state, shift);
-        const candidate = makeRoleAwareShift(state, employee, to, shift.paidMinutes);
-        applyShift(state, candidate);
-        const after = thienlongDateCost(state, from) + thienlongDateCost(state, to);
-        removeShift(state, candidate);
-        applyShift(state, shift);
+        const after =
+          thienlongDateCost(state, from, -shift.paidMinutes, -1) +
+          thienlongDateCost(state, to, shift.paidMinutes, 1);
 
         const delta = after - before;
         if (delta < -1e-6 && (!best || delta < best.delta)) {
@@ -1475,6 +1492,23 @@ export function generateSchedule(input: GenerateInput): Shift[] {
   const useThienlongStaffingBands =
     thienlongQuietDates.length > 0 &&
     thienlongQuietDates.every((date) => (rawTarget.get(date) ?? 0) >= 55 * 60);
+  const openThienlongDates = isThienlong
+    ? dates.filter((date) => !dayOf(date).closed && weightOf(date) > 0)
+    : [];
+  const minimumThienlongVisits = openThienlongDates.reduce((total, date) => {
+    const profile = thienlongStaffingProfile(
+      weekdayKeyOf(parseIsoDate(date)),
+      holidays.has(date),
+    );
+    return total + profile.minStaff;
+  }, 0);
+  // A three-hour minimum visit is a conservative feasibility check. If the
+  // workforce is smaller, keep proportional scheduling instead of forcing a
+  // headcount promise it cannot satisfy.
+  const useThienlongStaffingCounts =
+    isThienlong &&
+    employees.length >= 6 &&
+    totalTargetMin >= minimumThienlongVisits * 3 * 60;
 
   const dateState = new Map<string, DateState>();
   const worked = new Map<string, Set<string>>();
@@ -1518,6 +1552,7 @@ export function generateSchedule(input: GenerateInput): Shift[] {
       isThienlong,
       isVietpho,
       useThienlongStaffingBands,
+      useThienlongStaffingCounts,
       dayOf,
       rng: seededRandom(seed + salt),
       varyLengths,
@@ -1556,7 +1591,7 @@ export function generateSchedule(input: GenerateInput): Shift[] {
   }
 
   repairDemand(state, employeesById);
-  if (state.isThienlong && state.useThienlongStaffingBands) {
+  if (state.isThienlong && (state.useThienlongStaffingBands || state.useThienlongStaffingCounts)) {
     repairThienlongStaffing(state);
   }
   if (state.isVietpho) balanceVietphoPeaks(state);

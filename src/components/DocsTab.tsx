@@ -283,7 +283,7 @@ export function DocsTab({ storeId }: { storeId: string }) {
           <br />
           {isThienlong ? (
             <>
-              <b>Thứ 2–Thứ 5</b> dùng mức nền 1,00; <b>Thứ 6–Thứ 7–Chủ Nhật</b> dùng mức 1,30.
+              <b>Thứ 2–Thứ 5</b> dùng mức nền 1,00; <b>Thứ 6–Thứ 7</b> dùng mức 1,35 và <b>Chủ Nhật</b> dùng mức 1,20.
             </>
           ) : (
             <>
@@ -295,8 +295,8 @@ export function DocsTab({ storeId }: { storeId: string }) {
         </p>
         {isThienlong && (
           <p className="text-slate-600">
-            Với quy mô nhân sự hiện tại, Thứ 2–Thứ 5 được cân về khoảng <b>6–7 người</b> và
-            trung bình <b>55–60 giờ/ngày</b>. Thứ 6–Thứ 7–Chủ Nhật có trần cứng
+            Với quy mô nhân sự hiện tại, Thứ 2–Thứ 5 được ưu tiên khoảng <b>6–7 người</b>; mốc
+            <b> 55–60 giờ/ngày</b> chỉ áp dụng khi tổng giờ tháng vẫn đủ giữ đúng các tỷ lệ phía trên. Thứ 6–Thứ 7–Chủ Nhật có trần cứng
             <b> 8 người/ngày</b>; thuật toán không thay đổi định mức hay thông tin đã lưu của nhân viên.
           </p>
         )}

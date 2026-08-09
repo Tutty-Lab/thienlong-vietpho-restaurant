@@ -149,10 +149,11 @@ export function thienlongDemandIntervals(
   }));
 }
 
-/** Mo-Do are the base; Friday through Sunday use about 1.3x demand priority. */
+/** Mo-Do are the base; Friday/Saturday are busiest, Sunday is moderately busier. */
 export function thienlongDemandWeight(weekday: WeekdayKey, isHoliday = false): number {
-  if (isHoliday) return 1.3;
-  if (weekday === "friday" || weekday === "saturday" || weekday === "sunday") return 1.3;
+  if (isHoliday) return 1.35;
+  if (weekday === "friday" || weekday === "saturday") return 1.35;
+  if (weekday === "sunday") return 1.2;
   return 1;
 }
 
@@ -161,10 +162,13 @@ export function thienlongStaffingProfile(
   weekday: WeekdayKey,
   isHoliday = false,
 ): ThienlongStaffingProfile {
-  const busy = isHoliday || weekday === "friday" || weekday === "saturday" || weekday === "sunday";
-  return busy
-    ? { minStaff: 7, maxStaff: 8, minHours: 0, maxHours: Number.POSITIVE_INFINITY }
-    : { minStaff: 6, maxStaff: 7, minHours: 55, maxHours: 60 };
+  if (isHoliday || weekday === "friday" || weekday === "saturday") {
+    return { minStaff: 7, maxStaff: 8, minHours: 0, maxHours: Number.POSITIVE_INFINITY };
+  }
+  if (weekday === "sunday") {
+    return { minStaff: 6, maxStaff: 8, minHours: 0, maxHours: Number.POSITIVE_INFINITY };
+  }
+  return { minStaff: 6, maxStaff: 7, minHours: 55, maxHours: 60 };
 }
 
 export function thienlongLateShiftRatio(weekday: WeekdayKey, isHoliday = false): number {
