@@ -290,11 +290,11 @@ export function SettingsTab({ store }: { store: UseScheduleReturn }) {
         <section className="rounded-lg bg-white border border-slate-200 p-4 sm:p-5 shadow-sm">
           <h2 className="text-base font-semibold text-slate-900 mb-1">Hệ số Zuschläge</h2>
           <p className="text-xs text-slate-500 mb-3">
-            Dùng để quy đổi số giờ được cộng thêm trên bảng chấm công. Nếu một giờ vừa là
-            Chủ Nhật vừa sau 20:00 thì được cộng cả hai mức.
+            Dùng để quy đổi số giờ được cộng thêm trên bảng chấm công. Giờ sau 20:00 chỉ tính từ
+            Thứ Hai đến Thứ Bảy; Chủ Nhật được tính riêng, không cộng chồng.
           </p>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <Field label="Làm sau 20:00 (%)">
+            <Field label="Làm sau 20:00 (T2–T7) (%)">
               <input
                 type="number"
                 min="0"

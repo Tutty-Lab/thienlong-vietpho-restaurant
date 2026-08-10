@@ -13,6 +13,7 @@ import { monthLabel } from "../lib/shiftOps";
 import { ShiftCellEditor } from "./ShiftCellEditor";
 import { ScheduleDayView } from "./ScheduleDayView";
 import { ShiftTimes } from "./ShiftTimes";
+import { isEmployeeFixedDayOff } from "../lib/fixedDaysOff";
 
 function isWeekendKey(iso: string): boolean {
   const k = weekdayKeyOf(parseIsoDate(iso));
@@ -247,14 +248,15 @@ export function ScheduleTab({ store }: { store: UseScheduleReturn }) {
                     </td>
                     {dates.map((d) => {
                       const shift = shiftMap.get(`${emp.id}#${d}`);
+                      const fixedDayOff = isEmployeeFixedDayOff(emp, d, store.storeId);
                       return (
                         <td
                           key={d}
                           onClick={() => setSelected({ employeeId: emp.id, date: d })}
                           className={`border-b border-l border-slate-200 px-1 py-1 text-center cursor-pointer align-middle ${cellClass(
                             shift,
-                          )}`}
-                          title="Bấm để sửa"
+                          )} ${fixedDayOff && !shift ? "bg-amber-50 text-amber-800" : ""}`}
+                          title={fixedDayOff ? "Ngày nghỉ cố định" : "Bấm để sửa"}
                         >
                           {shift ? (
                             <div className="leading-tight">
@@ -265,7 +267,9 @@ export function ScheduleTab({ store }: { store: UseScheduleReturn }) {
                               </div>
                             </div>
                           ) : (
-                            <span className="text-[11px]">Nghỉ</span>
+                            <span className="text-[11px]">
+                              {fixedDayOff ? "Nghỉ cố định" : "Nghỉ"}
+                            </span>
                           )}
                         </td>
                       );

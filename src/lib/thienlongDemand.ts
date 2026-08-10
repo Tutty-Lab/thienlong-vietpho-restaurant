@@ -36,6 +36,15 @@ type ReferenceProfile = Record<WorkRole, readonly ReferenceInterval[]>;
 
 export const THIENLONG_REFERENCE_INVOICES = 150;
 
+const MEAL_PEAKS = [
+  { startMinutes: 11 * 60 + 30, endMinutes: 14 * 60 + 30 },
+  { startMinutes: 17 * 60 + 30, endMinutes: 20 * 60 + 30 },
+] as const;
+
+// Each meal window should absorb roughly 30% of the role's daily hours before
+// quieter edges are preferred. This is a soft placement priority only.
+const MEAL_PEAK_SHARE_OF_ROLE = 0.3;
+
 const referenceInterval = (
   startMinutes: number,
   endMinutes: number,
@@ -133,6 +142,28 @@ export function thienlongRoleShare(
     (total, demand) => total + demand.share,
     0,
   );
+}
+
+export function thienlongMealPeakIntervals(): readonly {
+  startMinutes: number;
+  endMinutes: number;
+}[] {
+  return MEAL_PEAKS.map((peak) => ({ ...peak }));
+}
+
+/** Extra soft demand used to keep longer shifts around lunch and dinner. */
+export function thienlongMealPeakDemand(
+  weekday: WeekdayKey,
+  role: WorkRole,
+  totalTargetMinutes: number,
+  isHoliday = false,
+): readonly RoleDemandInterval[] {
+  const roleMinutes =
+    Math.max(0, totalTargetMinutes) * thienlongRoleShare(weekday, role, isHoliday);
+  return MEAL_PEAKS.map((peak) => ({
+    ...peak,
+    personMinutes: roleMinutes * MEAL_PEAK_SHARE_OF_ROLE,
+  }));
 }
 
 /** Skaliert die aus der Beispielwoche abgeleiteten Anteile auf das Tages-Soll. */

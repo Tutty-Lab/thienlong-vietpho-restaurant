@@ -17,7 +17,6 @@ function localIsoDate(date: Date): string {
 
 export function StundenzettelTab({ store }: { store: UseScheduleReturn }) {
   const { schedule } = store;
-  const showThienlongExtras = store.storeId === "thienlong";
   const dates = useMemo(
     () => datesOfMonth(schedule.year, schedule.month),
     [schedule.year, schedule.month],
@@ -232,7 +231,6 @@ export function StundenzettelTab({ store }: { store: UseScheduleReturn }) {
             <StundenzettelPage
               schedule={schedule}
               employee={selected}
-              showThienlongExtras={showThienlongExtras}
             />
           </div>
         )}
@@ -245,9 +243,8 @@ export function StundenzettelTab({ store }: { store: UseScheduleReturn }) {
             key={emp.id}
             schedule={schedule}
             employee={emp}
-            showThienlongExtras={showThienlongExtras}
-            />
-          ))}
+          />
+        ))}
         {printDate && <DailySchedulePage schedule={schedule} date={printDate} />}
       </div>
 
@@ -258,7 +255,6 @@ export function StundenzettelTab({ store }: { store: UseScheduleReturn }) {
             key={emp.id}
             schedule={schedule}
             employee={emp}
-            showThienlongExtras={showThienlongExtras}
           />
         ))}
       </div>

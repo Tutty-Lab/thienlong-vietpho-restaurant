@@ -41,6 +41,17 @@ const schedule: Schedule = {
   employees,
   shifts: [
     {
+      id: "SHIFT-AZUBI-SUNDAY",
+      employeeId: "FREE-1",
+      date: "2026-08-02",
+      startMinutes: 1_080,
+      endMinutes: 1_320,
+      pauseMinutes: 0,
+      paidMinutes: 240,
+      shiftType: "LATE",
+      generated: true,
+    },
+    {
       id: "SHIFT-KITCHEN",
       employeeId: "KITCHEN-1",
       date: "2026-08-08",
@@ -101,18 +112,27 @@ describe("DailySchedulePage", () => {
     expect(html).not.toContain("22:15");
   });
 
-  it("summarizes staff and hours by restaurant role", () => {
+  it("summarizes staff and total hours without exposing internal roles", () => {
     const html = render("2026-08-08");
 
     expect(html).toContain("14,00 h");
-    expect(html).toContain("1 Pers. · 10,00 h");
-    expect(html).toContain("1 Pers. · 4,00 h");
+    expect(html).toContain("Im Einsatz");
+    expect(html).toContain("2 Pers.");
     expect(html).toContain("Geteilter Dienst");
     expect(html).toContain("Spätdienst");
     expect(html).toContain("Erstellt von");
     expect(html).toContain("Zuschläge");
     expect(html).toContain("Ab 20:00");
     expect(html).toContain("+1,00 h");
+    expect(html).not.toContain(">Bereich</th>");
+  });
+
+  it("keeps kitchen and service labels out of the printed daily list", () => {
+    const html = render("2026-08-08");
+
+    expect(html).not.toContain(">Bereich</th>");
+    expect(html).not.toContain(">Küche</div>");
+    expect(html).not.toContain(">Service</div>");
   });
 
   it("includes Sunday surcharge hours in the selected day's export", () => {
@@ -121,6 +141,12 @@ describe("DailySchedulePage", () => {
     expect(html).toContain("Sonntag");
     expect(html).toContain("0,75 h");
     expect(html).toContain("50%: +0,38 h");
+  });
+
+  it("does not calculate or list Zuschlaege when only an Azubi works", () => {
+    const html = render("2026-08-02");
+
+    expect(html).not.toContain("Zuschläge");
   });
 
   it("keeps the daily export compact when no surcharge hours exist", () => {

@@ -11,6 +11,7 @@ import {
 import { minutesToShortHours, minutesToTime } from "../lib/time";
 import { isoLabel } from "../lib/shiftOps";
 import { holidayNames as holidayNamesOf } from "../lib/holidays";
+import { isEmployeeFixedDayOff } from "../lib/fixedDaysOff";
 import { ShiftTimes } from "./ShiftTimes";
 
 /** Chế độ xem theo từng ngày – tối ưu cho điện thoại (không cuộn ngang). */
@@ -173,17 +174,26 @@ export function ScheduleDayView({
       {/* Người đang nghỉ – bấm để thêm ca */}
       {free.length > 0 && (
         <div className="mt-4">
-          <div className="text-xs text-slate-500 mb-1">Đang nghỉ ({free.length}) — bấm để thêm ca:</div>
+          <div className="text-xs text-slate-500 mb-1">Đang nghỉ ({free.length}):</div>
           <div className="flex flex-wrap gap-1.5">
-            {free.map((emp) => (
-              <button
-                key={emp.id}
-                onClick={() => onEdit(emp.id, selectedDate)}
-                className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-sm text-slate-600 hover:border-slate-300"
-              >
-                {emp.name}
-              </button>
-            ))}
+            {free.map((emp) => {
+              const fixedDayOff = isEmployeeFixedDayOff(emp, selectedDate, store.storeId);
+              return (
+                <button
+                  key={emp.id}
+                  disabled={fixedDayOff}
+                  title={fixedDayOff ? "Ngày nghỉ cố định" : "Bấm để thêm ca"}
+                  onClick={() => onEdit(emp.id, selectedDate)}
+                  className={`rounded-full border px-3 py-1 text-sm ${
+                    fixedDayOff
+                      ? "cursor-not-allowed border-amber-200 bg-amber-50 text-amber-800"
+                      : "border-slate-200 bg-slate-50 text-slate-600 hover:border-slate-300"
+                  }`}
+                >
+                  {emp.name}{fixedDayOff ? " · nghỉ cố định" : ""}
+                </button>
+              );
+            })}
           </div>
         </div>
       )}

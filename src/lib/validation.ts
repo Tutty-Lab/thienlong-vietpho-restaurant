@@ -2,13 +2,19 @@
 // Validierung des Dienstplans gegen alle geforderten Regeln.
 // ============================================================================
 
-import { AZUBI_HOURS_OUT_OF_TERM, type Employee, type Shift } from "../types";
+import {
+  AZUBI_HOURS_OUT_OF_TERM,
+  AZUBI_WEEKLY_TARGET_FLEX_HOURS,
+  type Employee,
+  type Shift,
+} from "../types";
 import { calculatePause, minutesToTime } from "./time";
 import { maxConsecutiveRun } from "./consecutive";
 import { datesOfMonth, parseIsoDate } from "./demand";
 import { holidaysOf, type HolidayState } from "./holidays";
 import { resolveDay, type OverrideMap, type WorkHoursConfig } from "./workHours";
 import { vietphoPeakIntervals } from "./vietphoDemand";
+import { isEmployeeFixedDayOff } from "./fixedDaysOff";
 
 export type ValidationError = {
   employeeId?: string;
@@ -120,13 +126,22 @@ export function validateSchedule(
         });
       }
       seenDates.add(shift.date);
+      if (isEmployeeFixedDayOff(emp, shift.date, context?.storeId)) {
+        errors.push({
+          employeeId: emp.id,
+          date: shift.date,
+          message: `${emp.name}: ngày ${shift.date} là ngày nghỉ cố định.`,
+        });
+      }
     }
 
     const assignedMinutes = empShifts.reduce((sum, s) => sum + s.paidMinutes, 0);
     const maxRun = maxConsecutiveRun(empShifts.map((s) => s.date));
 
     if (emp.employmentType === "AZUBI") {
-      const weeklyCapMinutes = Math.round(AZUBI_HOURS_OUT_OF_TERM * 60);
+      const weeklyCapMinutes = Math.round(
+        (AZUBI_HOURS_OUT_OF_TERM + AZUBI_WEEKLY_TARGET_FLEX_HOURS) * 60,
+      );
       const minutesByWeek = new Map<string, number>();
 
       for (const shift of empShifts) {

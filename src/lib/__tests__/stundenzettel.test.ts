@@ -8,7 +8,6 @@ import { DEFAULT_WORK_HOURS } from "../workHours";
 
 function renderAzubi(
   azubi: AzubiConfig,
-  showThienlongExtras = true,
   schedulePatch: Partial<Schedule> = {},
 ): string {
   const employee: Employee = withAutomaticAzubiTarget(
@@ -17,6 +16,7 @@ function renderAzubi(
       name: "Azubi Test",
       employmentType: "AZUBI",
       targetMinutes: 0,
+      workRole: "SERVICE",
       azubi,
     },
     2026,
@@ -36,7 +36,7 @@ function renderAzubi(
   };
 
   return renderToStaticMarkup(
-    createElement(StundenzettelPage, { schedule, employee, showThienlongExtras }),
+    createElement(StundenzettelPage, { schedule, employee }),
   );
 }
 
@@ -52,8 +52,9 @@ describe("Stundenaufzeichnung fuer Azubi", () => {
 
     expect(html).toContain("Ausbildung - kein Einsatz");
     expect(html).toContain("Berufsschule");
-    expect(html).toContain("Arbeitsstunden ab 20:00 Uhr");
-    expect(html).toContain("Sonntagsstunden");
+    expect(html).not.toContain("Einsatzbereich");
+    expect(html).not.toContain("Arbeitsstunden ab 20:00 Uhr");
+    expect(html).not.toContain("Sonntagsstunden");
   });
 
   it("shows the full-month work state", () => {
@@ -80,21 +81,19 @@ describe("Stundenaufzeichnung fuer Azubi", () => {
     expect(html).toContain("Berufsschule");
   });
 
-  it("shows Zuschlaege for Vietpho as well", () => {
-    const html = renderAzubi(
-      { inSchoolTerm: false, schoolDays: [], monthlyHoursOutOfTerm: 154 },
-      false,
-    );
+  it("does not calculate or list Zuschlaege for Azubi", () => {
+    const html = renderAzubi({
+      inSchoolTerm: false,
+      schoolDays: [],
+      monthlyHoursOutOfTerm: 154,
+    });
 
-    expect(html).toContain("Zuschläge");
-    expect(html).toContain("Arbeitsstunden ab 20:00 Uhr");
-    expect(html).toContain("Sonntagsstunden");
+    expect(html).not.toContain("Zuschläge");
   });
 
-  it("prints configured surcharge rates and bonus-equivalent hours", () => {
+  it("does not print configured surcharge rates for Azubi", () => {
     const html = renderAzubi(
       { inSchoolTerm: false, schoolDays: [], monthlyHoursOutOfTerm: 154 },
-      true,
       {
         surchargeConfig: { after20Percent: 25, sundayPercent: 50 },
         shifts: [
@@ -113,9 +112,63 @@ describe("Stundenaufzeichnung fuer Azubi", () => {
       },
     );
 
+    expect(html).not.toContain("Zuschlag 25%");
+    expect(html).not.toContain("Zuschlag 50%");
+    expect(html).not.toContain("Zuschlagsstunden gesamt");
+  });
+
+  it("keeps Zuschlaege for regular employees without double-counting Sunday Nacht hours", () => {
+    const employee: Employee = {
+      id: "REGULAR-PRINT",
+      name: "Regular Test",
+      employmentType: "VOLLZEIT",
+      targetMinutes: 160 * 60,
+      workRole: "KITCHEN",
+    };
+    const schedule: Schedule = {
+      companyName: "Testbetrieb",
+      holidayState: "BW",
+      address: "Teststrasse 1",
+      year: 2026,
+      month: 8,
+      workHours: DEFAULT_WORK_HOURS,
+      surchargeConfig: { after20Percent: 25, sundayPercent: 50 },
+      dateOverrides: [],
+      employees: [employee],
+      shifts: [
+        {
+          id: "saturday-late",
+          employeeId: employee.id,
+          date: "2026-08-01",
+          startMinutes: 20 * 60,
+          endMinutes: 22 * 60,
+          pauseMinutes: 0,
+          paidMinutes: 2 * 60,
+          shiftType: "LATE",
+          generated: true,
+        },
+        {
+          id: "sunday-late",
+          employeeId: employee.id,
+          date: "2026-08-02",
+          startMinutes: 20 * 60,
+          endMinutes: 22 * 60,
+          pauseMinutes: 0,
+          paidMinutes: 2 * 60,
+          shiftType: "LATE",
+          generated: true,
+        },
+      ],
+    };
+
+    const html = renderToStaticMarkup(
+      createElement(StundenzettelPage, { schedule, employee }),
+    );
+
+    expect(html).toContain("Zuschläge");
     expect(html).toContain("Zuschlag 25%: +0,50 h");
-    expect(html).toContain("Zuschlag 50%: +2,00 h");
-    expect(html).toContain("Zuschlagsstunden gesamt");
-    expect(html).toContain("+2,50 h");
+    expect(html).toContain("Zuschlag 50%: +1,00 h");
+    expect(html).toContain("+1,50 h");
+    expect(html).not.toContain("Einsatzbereich");
   });
 });

@@ -383,11 +383,11 @@ describe("Azubi ngoài kỳ học", () => {
     }
   });
 
-  it("validation báo lỗi nếu một tuần vượt 38,5h", () => {
+  it("validation chỉ báo lỗi khi vượt cả biên linh hoạt 1h để hoàn tất định mức", () => {
     const employee = employeeWithConfig({
       inSchoolTerm: false,
       schoolDays: [],
-      monthlyHoursOutOfTerm: 39,
+      monthlyHoursOutOfTerm: 40,
     });
     const result = validateSchedule(
       [employee],
@@ -395,11 +395,11 @@ describe("Azubi ngoài kỳ học", () => {
         manualShift(employee.id, "week-1", "2026-08-03", 10 * 60),
         manualShift(employee.id, "week-2", "2026-08-04", 10 * 60),
         manualShift(employee.id, "week-3", "2026-08-05", 10 * 60),
-        manualShift(employee.id, "week-4", "2026-08-06", 9 * 60),
+        manualShift(employee.id, "week-4", "2026-08-06", 10 * 60),
       ],
     );
 
-    expect(result.errors.some((error) => error.message.includes("38.5h"))).toBe(true);
+    expect(result.errors.some((error) => error.message.includes("39.5h"))).toBe(true);
   });
 });
 

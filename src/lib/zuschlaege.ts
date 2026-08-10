@@ -22,11 +22,14 @@ export function normalizeSurchargeConfig(
 }
 
 /**
- * Minutes present after 20:00. Normal shifts do not store the exact pause
- * position, so the result is capped by paid time; generated late shifts place
- * their pause before this surcharge window.
+ * Paid Nacht minutes after 20:00 from Monday through Saturday. Sunday is
+ * accounted for by the separate Sunday surcharge and must not be counted twice.
+ * Normal shifts do not store the exact pause position, so the result is capped
+ * by paid time; generated late shifts place their pause before this window.
  */
 export function shiftMinutesAfter20(shift: Shift): number {
+  if (weekdayKeyOf(parseIsoDate(shift.date)) === "sunday") return 0;
+
   const segments = shift.segments ?? [
     { startMinutes: shift.startMinutes, endMinutes: shift.endMinutes },
   ];
@@ -63,8 +66,8 @@ export type ZuschlagCalculation = ZuschlagTotals &
   };
 
 /**
- * Converts surcharge percentages into bonus-equivalent minutes. A Sunday hour
- * after 20:00 receives both bonuses; each result is rounded to a full minute.
+ * Converts surcharge percentages into bonus-equivalent minutes. Sunday and
+ * Nacht hours are mutually exclusive; each result is rounded to a full minute.
  */
 export function calculateZuschlaege(
   shifts: readonly Shift[],

@@ -28,6 +28,7 @@ import {
   DEFAULT_SURCHARGE_CONFIG,
   normalizeSurchargeConfig,
 } from "../lib/zuschlaege";
+import { isEmployeeFixedDayOff, normalizedFixedDaysOff } from "../lib/fixedDaysOff";
 
 function emptySchedule(store: StoreConfig): Schedule {
   const now = new Date();
@@ -54,8 +55,17 @@ function overridesToMap(list: DateOverride[]): OverrideMap {
   return map;
 }
 
-function normalizeEmployee(employee: Employee, year: number, month: number): Employee {
-  return withAutomaticAzubiTarget(employee, year, month);
+function normalizeEmployee(
+  employee: Employee,
+  year: number,
+  month: number,
+  storeId: string,
+): Employee {
+  return withAutomaticAzubiTarget(
+    normalizedFixedDaysOff(employee, storeId),
+    year,
+    month,
+  );
 }
 
 /** Migriert einen (evtl. alten) gespeicherten Stand auf das aktuelle Schema. */
@@ -84,7 +94,7 @@ function normalizeSchedule(raw: Schedule | undefined, store: StoreConfig): Sched
     surchargeConfig: normalizeSurchargeConfig(raw.surchargeConfig),
     dateOverrides: Array.isArray(raw.dateOverrides) ? raw.dateOverrides : [],
     employees: (raw.employees ?? []).map((employee) =>
-      normalizeEmployee(employee, year, month),
+      normalizeEmployee(employee, year, month, store.id),
     ),
     shifts: raw.shifts ?? [],
   };
@@ -210,6 +220,8 @@ export function useSchedule() {
     () =>
       checkScheduleReadiness(schedule.employees, {
         requireWorkRole: storeId === "thienlong",
+        requireFixedDaysOff: storeId === "thienlong" || storeId === "vietpho",
+        storeId,
       }),
     [schedule.employees, storeId],
   );
@@ -239,6 +251,7 @@ export function useSchedule() {
               : Math.round(targetHours) * 60,
           azubi,
           workRole,
+          fixedDaysOff: employmentType === "TEILZEIT" ? undefined : [],
         };
         return { ...s, employees: [...s.employees, emp] };
       });
@@ -251,11 +264,11 @@ export function useSchedule() {
       ...s,
       employees: s.employees.map((e) =>
         e.id === id
-          ? normalizeEmployee({ ...e, ...patch }, s.year, s.month)
+          ? normalizeEmployee({ ...e, ...patch }, s.year, s.month, storeId)
           : e,
       ),
     }));
-  }, []);
+  }, [storeId]);
 
   const removeEmployee = useCallback((id: string) => {
     setSchedule((s) => ({
@@ -354,10 +367,14 @@ export function useSchedule() {
       setSchedule((s) => {
         const exists = s.shifts.some((sh) => sh.employeeId === employeeId && sh.date === date);
         if (exists) return s;
+        const employee = s.employees.find((candidate) => candidate.id === employeeId);
+        if (employee && isEmployeeFixedDayOff(employee, date, storeId)) {
+          return s;
+        }
         return { ...s, shifts: [...s.shifts, createManualShift(employeeId, date, start, end, pause)] };
       });
     },
-    [],
+    [storeId],
   );
 
   const deleteShift = useCallback((shiftId: string) => {
@@ -381,6 +398,10 @@ export function useSchedule() {
         (sh) => sh.employeeId === targetEmployeeId && sh.date === shift.date,
       );
       if (conflict) return s;
+      const targetEmployee = s.employees.find((employee) => employee.id === targetEmployeeId);
+      if (targetEmployee && isEmployeeFixedDayOff(targetEmployee, shift.date, storeId)) {
+        return s;
+      }
       return {
         ...s,
         shifts: s.shifts.map((sh) =>
@@ -388,7 +409,7 @@ export function useSchedule() {
         ),
       };
     });
-  }, []);
+  }, [storeId]);
 
   return {
     schedule,

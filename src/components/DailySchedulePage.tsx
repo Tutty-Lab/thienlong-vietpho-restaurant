@@ -15,12 +15,6 @@ function employmentLabel(employee: Employee): string {
   return "Ausbildung";
 }
 
-function roleLabel(employee: Employee): string {
-  if (employee.workRole === "KITCHEN") return "Küche";
-  if (employee.workRole === "SERVICE") return "Service";
-  return "—";
-}
-
 function shiftLabel(shift: Shift): string {
   if (shift.segments?.length) return "Geteilter Dienst";
   if (shift.shiftType === "EARLY") return "Frühdienst";
@@ -61,15 +55,10 @@ export function DailySchedulePage({ schedule, date }: { schedule: Schedule; date
   });
 
   const totalMinutes = shifts.reduce((total, shift) => total + shift.paidMinutes, 0);
-  const kitchenShifts = shifts.filter(
-    (shift) => employeeById.get(shift.employeeId)?.workRole === "KITCHEN",
+  const surchargeEligibleShifts = shifts.filter(
+    (shift) => employeeById.get(shift.employeeId)?.employmentType !== "AZUBI",
   );
-  const serviceShifts = shifts.filter(
-    (shift) => employeeById.get(shift.employeeId)?.workRole === "SERVICE",
-  );
-  const kitchenMinutes = kitchenShifts.reduce((total, shift) => total + shift.paidMinutes, 0);
-  const serviceMinutes = serviceShifts.reduce((total, shift) => total + shift.paidMinutes, 0);
-  const surchargeRows = shifts
+  const surchargeRows = surchargeEligibleShifts
     .map((shift) => {
       const employee = employeeById.get(shift.employeeId);
       return employee
@@ -80,7 +69,10 @@ export function DailySchedulePage({ schedule, date }: { schedule: Schedule; date
     .filter(
       ({ calculation }) => calculation.after20Minutes > 0 || calculation.sundayMinutes > 0,
     );
-  const dailySurcharges = calculateZuschlaege(shifts, schedule.surchargeConfig);
+  const dailySurcharges = calculateZuschlaege(
+    surchargeEligibleShifts,
+    schedule.surchargeConfig,
+  );
   const hasDailySurcharges =
     dailySurcharges.after20Minutes > 0 || dailySurcharges.sundayMinutes > 0;
 
@@ -118,7 +110,6 @@ export function DailySchedulePage({ schedule, date }: { schedule: Schedule; date
         <thead>
           <tr className="bg-slate-100">
             <Th className="text-left">Mitarbeiter</Th>
-            <Th>Bereich</Th>
             <Th>Beschäftigung</Th>
             <Th>Arbeitszeit</Th>
             <Th>Pause</Th>
@@ -132,7 +123,6 @@ export function DailySchedulePage({ schedule, date }: { schedule: Schedule; date
             return (
               <tr key={employee.id} className={shift ? "" : "bg-slate-50 text-slate-500"}>
                 <Td className="font-medium text-slate-900">{employee.name}</Td>
-                <Td className="text-center">{roleLabel(employee)}</Td>
                 <Td className="text-center">{employmentLabel(employee)}</Td>
                 <Td className="text-center font-medium">
                   {shift
@@ -155,7 +145,7 @@ export function DailySchedulePage({ schedule, date }: { schedule: Schedule; date
           })}
           {employees.length === 0 && (
             <tr>
-              <Td className="py-6 text-center text-slate-500" colSpan={7}>
+              <Td className="py-6 text-center text-slate-500" colSpan={6}>
                 Keine Mitarbeiter eingetragen.
               </Td>
             </tr>
@@ -219,17 +209,9 @@ export function DailySchedulePage({ schedule, date }: { schedule: Schedule; date
         </section>
       )}
 
-      <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 text-[12px] sm:grid-cols-4">
+      <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 text-[12px] sm:grid-cols-2">
         <Stat label="Im Einsatz" value={`${shifts.length} Pers.`} />
         <Stat label="Gesamtstunden" value={`${minutesToDecimalHours(totalMinutes)} h`} />
-        <Stat
-          label="Küche"
-          value={`${kitchenShifts.length} Pers. · ${minutesToDecimalHours(kitchenMinutes)} h`}
-        />
-        <Stat
-          label="Service"
-          value={`${serviceShifts.length} Pers. · ${minutesToDecimalHours(serviceMinutes)} h`}
-        />
       </div>
 
       <div className="mt-10 grid grid-cols-3 gap-8 text-[11px]">

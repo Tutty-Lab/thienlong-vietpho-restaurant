@@ -8,6 +8,8 @@ import {
   thienlongDemandShares,
   thienlongDemandWeight,
   thienlongLateShiftRatio,
+  thienlongMealPeakDemand,
+  thienlongMealPeakIntervals,
   thienlongRoleShare,
 } from "../thienlongDemand";
 import type { Shift } from "../../types";
@@ -78,6 +80,22 @@ describe("Thienlong role demand profile", () => {
 
   it("records 150 Rechnungen as the profile calibration reference", () => {
     expect(THIENLONG_REFERENCE_INVOICES).toBe(150);
+  });
+
+  it("treats the lunch and dinner windows as soft high-demand periods", () => {
+    expect(thienlongMealPeakIntervals()).toEqual([
+      { startMinutes: 11 * 60 + 30, endMinutes: 14 * 60 + 30 },
+      { startMinutes: 17 * 60 + 30, endMinutes: 20 * 60 + 30 },
+    ]);
+
+    const peakDemand = thienlongMealPeakDemand(
+      "monday",
+      "KITCHEN",
+      60 * 60,
+    );
+    expect(peakDemand).toHaveLength(2);
+    expect(peakDemand[0].personMinutes).toBeGreaterThan(0);
+    expect(peakDemand[1].personMinutes).toBe(peakDemand[0].personMinutes);
   });
 
   it("prefers the shift that fills the currently uncovered role intervals", () => {

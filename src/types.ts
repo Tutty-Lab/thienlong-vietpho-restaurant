@@ -51,6 +51,8 @@ export type AzubiConfig = {
 export const AZUBI_HOURS_IN_TERM = 0;
 /** Woechentliche Planungsgrenze ausserhalb der Schulzeit. */
 export const AZUBI_HOURS_OUT_OF_TERM = 38.5;
+/** Small target-completion buffer when calendar edges leave only long shifts. */
+export const AZUBI_WEEKLY_TARGET_FLEX_HOURS = 1;
 /** Ab diesem Monatssoll wird gewarnt, die Eingabe bleibt aber wirksam. */
 export const AZUBI_MONTHLY_WARNING_HOURS = 174;
 
@@ -71,6 +73,8 @@ export type Employee = {
    * Das Feld wird je Filiale im bestehenden Mitarbeiter-JSON gespeichert.
    */
   fixedStoreWeekPattern?: boolean;
+  /** Feste Ruhetage der jeweiligen Filiale; dort darf keine Schicht liegen. */
+  fixedDaysOff?: WeekdayName[];
   /**
    * Häkchen „Lưu" in der Mitarbeiterliste: vom Nutzer gesetzte Bestätigung,
    * dass die Daten dieser Person geprüft und übernommen sind. Rein als Merker

@@ -79,4 +79,56 @@ describe("Schedule readiness", () => {
       ).ready,
     ).toBe(true);
   });
+
+  it("requires one Vollzeit and two Azubi fixed days off for both stores", () => {
+    const azubi = employee({
+      id: "azubi-1",
+      employmentType: "AZUBI",
+      targetMinutes: 40 * 60,
+      fixedDaysOff: ["saturday"],
+    });
+
+    const incomplete = checkScheduleReadiness(
+      [employee(), azubi],
+      { requireFixedDaysOff: true, storeId: "vietpho" },
+    );
+    expect(incomplete.ready).toBe(false);
+    expect(incomplete.issues).toContain(
+      "Vollzeit phải chọn đúng 1 ngày nghỉ cố định mỗi tuần.",
+    );
+    expect(incomplete.issues).toContain(
+      "Azubi phải chọn đúng 2 ngày nghỉ cố định mỗi tuần.",
+    );
+
+    const complete = checkScheduleReadiness(
+      [
+        employee({ fixedDaysOff: ["monday"] }),
+        { ...azubi, fixedDaysOff: ["saturday", "sunday"] },
+      ],
+      { requireFixedDaysOff: true, storeId: "vietpho" },
+    );
+    expect(complete.ready).toBe(true);
+  });
+
+  it("does not allow Sunday as Vietpho leave for a fixed two-store employee", () => {
+    const twoStore = employee({
+      fixedStoreWeekPattern: true,
+      fixedDaysOff: ["sunday"],
+    });
+    const colleague = employee({
+      id: "employee-2",
+      name: "Tran Van B",
+      fixedDaysOff: ["monday"],
+    });
+
+    const result = checkScheduleReadiness(
+      [twoStore, colleague],
+      { requireFixedDaysOff: true, storeId: "vietpho" },
+    );
+
+    expect(result.ready).toBe(false);
+    expect(result.issues).toContain(
+      "Vollzeit phải chọn đúng 1 ngày nghỉ cố định mỗi tuần.",
+    );
+  });
 });

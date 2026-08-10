@@ -1,4 +1,5 @@
 import type { Employee } from "../types";
+import { hasRequiredFixedDaysOff } from "./fixedDaysOff";
 
 export type ScheduleReadiness = {
   ready: boolean;
@@ -7,7 +8,11 @@ export type ScheduleReadiness = {
 
 export function checkScheduleReadiness(
   employees: Employee[],
-  options: { requireWorkRole?: boolean } = {},
+  options: {
+    requireWorkRole?: boolean;
+    requireFixedDaysOff?: boolean;
+    storeId?: string;
+  } = {},
 ): ScheduleReadiness {
   const issues: string[] = [];
 
@@ -40,6 +45,26 @@ export function checkScheduleReadiness(
     employees.some((employee) => !employee.workRole)
   ) {
     issues.push("Hãy chọn vị trí Bếp hoặc Bồi cho tất cả nhân viên.");
+  }
+  if (
+    options.requireFixedDaysOff &&
+    employees.some(
+      (employee) =>
+        employee.employmentType === "VOLLZEIT" &&
+        !hasRequiredFixedDaysOff(employee, options.storeId),
+    )
+  ) {
+    issues.push("Vollzeit phải chọn đúng 1 ngày nghỉ cố định mỗi tuần.");
+  }
+  if (
+    options.requireFixedDaysOff &&
+    employees.some(
+      (employee) =>
+        employee.employmentType === "AZUBI" &&
+        !hasRequiredFixedDaysOff(employee, options.storeId),
+    )
+  ) {
+    issues.push("Azubi phải chọn đúng 2 ngày nghỉ cố định mỗi tuần.");
   }
 
   return { ready: issues.length === 0, issues };

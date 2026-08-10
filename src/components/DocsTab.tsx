@@ -244,8 +244,13 @@ export function DocsTab({ storeId }: { storeId: string }) {
           <li>Mỗi người làm tối đa <b>một ngày công/ngày</b>, có thể gồm <b>hai khung giờ tách rời</b>.</li>
           <li>Không làm quá <b>6 ngày liên tiếp</b>, nên luôn có ít nhất một ngày nghỉ mỗi tuần.</li>
           <li>
+            Ngày nghỉ cố định áp dụng ở cả hai quán như quy tắc cứng:
+            <b> Vollzeit chọn 1 ngày/tuần</b>, <b>Azubi chọn 2 ngày/tuần</b>; thuật toán
+            và thao tác chuyển ca đều không được xếp vào các ngày đó.
+          </li>
+          <li>
             Checkbox <b>Lịch 2 quán</b> khóa nhân viên vào T2–T7 tại Thienlong và Chủ Nhật tại Vietpho;
-            các ngày này không được chọn ngẫu nhiên.
+            CN là ngày nghỉ tại Thienlong nhưng là ngày làm tại Vietpho.
           </li>
           {isThienlong ? (
             <li>Mỗi ngày mở cửa có ít nhất <b>2 nhân viên đến trước giờ mở cửa 30 phút</b>.</li>

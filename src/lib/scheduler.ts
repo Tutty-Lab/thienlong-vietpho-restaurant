@@ -16,7 +16,13 @@
 //  - Token-Dauer wird nie verändert  => monatliches Soll bleibt exakt
 // ============================================================================
 
-import { AZUBI_HOURS_OUT_OF_TERM, type Employee, type Shift } from "../types";
+import {
+  AZUBI_HOURS_OUT_OF_TERM,
+  AZUBI_WEEKLY_TARGET_FLEX_HOURS,
+  type Employee,
+  type Shift,
+} from "../types";
+import { isEmployeeFixedDayOff } from "./fixedDaysOff";
 import {
   DAY_WEIGHTS,
   LATE_SHIFT_RATIOS,
@@ -44,6 +50,8 @@ import {
   thienlongDemandIntervals,
   thienlongDemandWeight,
   thienlongLateShiftRatio,
+  thienlongMealPeakDemand,
+  thienlongMealPeakIntervals,
   thienlongStaffingProfile,
 } from "./thienlongDemand";
 import {
@@ -105,13 +113,6 @@ type SchedulerState = {
   /** true = Schichtlängen mischen; false = immer die längste (Rückfallmodus). */
   varyLengths: boolean;
 };
-
-/** Länge des Zeitfensters in Minuten (0 wenn geschlossen). */
-function windowLength(day: ResolvedDay): number {
-  // Maßgeblich ist der LÄNGSTE Block – eine Schicht muss komplett in einen
-  // Block passen und darf nie über die Mittagsschließung laufen.
-  return longestBlockMinutes(day);
-}
 
 /**
  * Thienlong follows the configured weekday ratios first. The 55-60 hour
@@ -301,25 +302,30 @@ function chooseFixedPatternHours(
   const remainingHours = remainingMinutes / 60;
   const allowed = allowedHoursFor(employmentType, profile);
   const cap = Math.min(maxHours, profile === "vietpho" ? 8 : 10, remainingHours);
+  const minimumHours = Math.min(...allowed);
+  const maximumHours = Math.max(...allowed);
+  const minimumCount = Math.ceil(remainingHours / maximumHours);
+  const maximumCount = Math.min(
+    shiftsLeft,
+    Math.floor(remainingHours / minimumHours),
+  );
+  let count = maximumCount;
+  while (count >= minimumCount && !canDecomposeInCount(remainingHours, allowed, count)) {
+    count -= 1;
+  }
+  if (count < minimumCount) return 0;
   const candidates = allowed.filter(
     (hours) =>
       hours <= cap &&
-      canDecomposeInCount(remainingHours - hours, allowed, shiftsLeft - 1),
+      canDecomposeInCount(remainingHours - hours, allowed, count - 1),
   );
   if (candidates.length === 0) return 0;
 
-  const average = remainingHours / shiftsLeft;
+  const average = remainingHours / count;
   return [...candidates].sort(
     (a, b) => Math.abs(a - average) - Math.abs(b - average) || a - b,
   )[0];
 }
-
-/** Längstmögliche Schicht je Anstellungsart – für die Kapazitätsrechnung. */
-const PREFERRED_HOURS: Record<Employee["employmentType"], number> = {
-  VOLLZEIT: 8,
-  TEILZEIT: 8,
-  AZUBI: 8,
-};
 
 /** Größte Schichtlänge (Stunden), deren Anwesenheit noch ins Fenster passt (0 = keine). */
 export function maxShiftHoursForWindow(windowMinutes: number): number {
@@ -505,6 +511,23 @@ function roleDemandOf(state: SchedulerState, employee: Employee, isoDate: string
   );
 }
 
+function thienlongPeakDemandOf(
+  state: SchedulerState,
+  employee: Employee,
+  isoDate: string,
+) {
+  if (!state.isThienlong || !employee.workRole) return [];
+  return clipDemandIntervals(
+    thienlongMealPeakDemand(
+      weekdayKeyOf(parseIsoDate(isoDate)),
+      employee.workRole,
+      state.rawTarget.get(isoDate) ?? 0,
+      state.holidays.has(isoDate),
+    ),
+    state.dayOf(isoDate).blocks,
+  );
+}
+
 function roleShiftsOnDate(
   state: SchedulerState,
   employee: Employee,
@@ -568,6 +591,127 @@ function customContinuousShift(
     shiftType: "CUSTOM",
     generated: true,
   };
+}
+
+function startsAroundInterval(
+  block: { startMinutes: number; endMinutes: number },
+  interval: { startMinutes: number; endMinutes: number },
+  duration: number,
+): number[] {
+  const centered = Math.round(
+    ((interval.startMinutes + interval.endMinutes - duration) / 2) / 30,
+  ) * 30;
+  return [
+    interval.startMinutes,
+    interval.endMinutes - duration,
+    centered,
+  ].map((start) =>
+    Math.max(block.startMinutes, Math.min(start, block.endMinutes - duration)),
+  );
+}
+
+function customSplitShift(
+  employee: Employee,
+  isoDate: string,
+  paidMinutes: number,
+  lunchStart: number,
+  lunchMinutes: number,
+  eveningStart: number,
+): Shift {
+  const eveningMinutes = paidMinutes - lunchMinutes;
+  const segments = [
+    { startMinutes: lunchStart, endMinutes: lunchStart + lunchMinutes },
+    { startMinutes: eveningStart, endMinutes: eveningStart + eveningMinutes },
+  ];
+  return {
+    id: nextShiftId(),
+    employeeId: employee.id,
+    date: isoDate,
+    startMinutes: segments[0].startMinutes,
+    endMinutes: segments[1].endMinutes,
+    pauseMinutes: 0,
+    segments,
+    paidMinutes,
+    shiftType: "CUSTOM",
+    generated: true,
+  };
+}
+
+function thienlongCandidates(
+  state: SchedulerState,
+  employee: Employee,
+  isoDate: string,
+  paidMinutes: number,
+): Shift[] {
+  const blocks = state.dayOf(isoDate).blocks;
+  const preferredType = chooseTemplateType(state, isoDate, employee.employmentType);
+  const candidates = [
+    makeShift(state, employee, isoDate, paidMinutes, preferredType),
+    makeShift(
+      state,
+      employee,
+      isoDate,
+      paidMinutes,
+      preferredType === "EARLY" ? "LATE" : "EARLY",
+    ),
+  ];
+  const peaks = thienlongMealPeakIntervals();
+  const presence = presenceFromPaid(paidMinutes);
+
+  for (const block of blocks) {
+    if (presence > block.endMinutes - block.startMinutes) continue;
+    const starts = [
+      block.startMinutes,
+      block.endMinutes - presence,
+      ...peaks.flatMap((peak) => startsAroundInterval(block, peak, presence)),
+    ];
+    for (const startMinutes of starts) {
+      if (startMinutes < block.startMinutes || startMinutes + presence > block.endMinutes) continue;
+      candidates.push(customContinuousShift(employee, isoDate, paidMinutes, startMinutes));
+    }
+  }
+
+  if (blocks.length >= 2) {
+    const lunch = blocks[0];
+    const evening = blocks[blocks.length - 1];
+    const lunchPeak = peaks[0];
+    const eveningPeak = peaks[1];
+    const lunchCap = lunch.endMinutes - lunch.startMinutes;
+    const eveningCap = evening.endMinutes - evening.startMinutes;
+    const minimumLunch = Math.max(60, paidMinutes - eveningCap);
+    const maximumLunch = Math.min(lunchCap, paidMinutes - 60);
+
+    for (let lunchMinutes = minimumLunch; lunchMinutes <= maximumLunch; lunchMinutes += 30) {
+      const eveningMinutes = paidMinutes - lunchMinutes;
+      for (const lunchStart of startsAroundInterval(lunch, lunchPeak, lunchMinutes)) {
+        for (const eveningStart of startsAroundInterval(
+          evening,
+          eveningPeak,
+          eveningMinutes,
+        )) {
+          candidates.push(
+            customSplitShift(
+              employee,
+              isoDate,
+              paidMinutes,
+              lunchStart,
+              lunchMinutes,
+              eveningStart,
+            ),
+          );
+        }
+      }
+    }
+  }
+
+  const unique = new Map<string, Shift>();
+  for (const candidate of candidates) {
+    const key = (candidate.segments ?? [candidate])
+      .map((segment) => `${segment.startMinutes}-${segment.endMinutes}`)
+      .join("|");
+    if (!unique.has(key)) unique.set(key, candidate);
+  }
+  return [...unique.values()];
 }
 
 function customVietphoSplitShift(
@@ -792,17 +936,15 @@ function makeRoleAwareShift(
   if (!demand) return makeShift(state, employee, isoDate, paidMinutes);
 
   const existing = roleShiftsOnDate(state, employee, isoDate);
-  const early = makeShift(state, employee, isoDate, paidMinutes, "EARLY");
-  const late = makeShift(state, employee, isoDate, paidMinutes, "LATE");
-  const earlyGain = demandCoverageGain(early, existing, demand);
-  const lateGain = demandCoverageGain(late, existing, demand);
+  const peakDemand = thienlongPeakDemandOf(state, employee, isoDate);
+  const candidates = thienlongCandidates(state, employee, isoDate, paidMinutes);
 
-  if (earlyGain === lateGain) {
-    return chooseTemplateType(state, isoDate, employee.employmentType) === "EARLY"
-      ? early
-      : late;
-  }
-  return earlyGain > lateGain ? early : late;
+  return candidates.reduce((best, candidate) => {
+    const score = (shift: Shift) =>
+      demandCoverageGain(shift, existing, demand) +
+      demandCoverageGain(shift, existing, peakDemand) * 2;
+    return score(candidate) > score(best) ? candidate : best;
+  });
 }
 
 function roleGapHours(state: SchedulerState, employee: Employee, isoDate: string): number {
@@ -863,6 +1005,18 @@ function matchesFixedStoreWeekPattern(
   return true;
 }
 
+function matchesEmployeeDayRules(
+  state: SchedulerState,
+  employee: Employee,
+  isoDate: string,
+): boolean {
+  const storeId = state.isThienlong ? "thienlong" : state.isVietpho ? "vietpho" : undefined;
+  return (
+    !isEmployeeFixedDayOff(employee, isoDate, storeId) &&
+    matchesFixedStoreWeekPattern(state, employee, isoDate)
+  );
+}
+
 /**
  * Platziert genau eine Schicht für einen Mitarbeiter: bestes Datum wählen,
  * Schichtlänge an das Tagesfenster anpassen. Gibt true zurück, wenn platziert.
@@ -882,7 +1036,7 @@ function placeOneShift(state: SchedulerState, employee: Employee): boolean {
   let daysLeft = 0;
   for (const isoDate of state.dates) {
     if (worked.has(isoDate)) continue;
-    if (!matchesFixedStoreWeekPattern(state, employee, isoDate)) continue;
+    if (!matchesEmployeeDayRules(state, employee, isoDate)) continue;
     const day = state.dayOf(isoDate);
     if (day.closed) continue;
     if (maxPaidForDay(day) === 0) continue;
@@ -903,7 +1057,7 @@ function placeOneShift(state: SchedulerState, employee: Employee): boolean {
 
   for (const isoDate of state.dates) {
     if (worked.has(isoDate)) continue; // max. ein Dienst pro Tag
-    if (!matchesFixedStoreWeekPattern(state, employee, isoDate)) continue;
+    if (!matchesEmployeeDayRules(state, employee, isoDate)) continue;
     const day = state.dayOf(isoDate);
     if (day.closed) continue; // Betriebsruhe -> kein Dienst
     const weekKey = weekKeyOf(isoDate);
@@ -1039,6 +1193,53 @@ function removeShift(state: SchedulerState, shift: Shift): void {
   if (idx >= 0) state.shifts.splice(idx, 1);
 }
 
+/**
+ * Uses spare capacity in already assigned visits before giving up on a target.
+ * This is important for high monthly targets: an extra half-hour should make
+ * an existing visit longer (ideally across a meal peak), not create a ninth
+ * person on a busy date.
+ */
+function extendExistingShiftsToTargets(
+  state: SchedulerState,
+  weeklyFlexMinutes = 0,
+): void {
+  for (const employee of state.employeesById.values()) {
+    let remaining = state.remaining.get(employee.id) ?? 0;
+    if (remaining <= 0) continue;
+
+    while (remaining > 0) {
+      const options = state.shifts
+        .filter((shift) => shift.employeeId === employee.id)
+        .map((shift) => {
+          const dayCapacity = Math.min(
+            maxPaidForDay(state.dayOf(shift.date)),
+            state.isVietpho ? 8 * 60 : MAX_DAILY_MINUTES,
+          );
+          const weekCap = weeklyCapMinutes(employee);
+          const weekUsed = state.weekMinutes.get(employee.id)?.get(weekKeyOf(shift.date)) ?? 0;
+          const weekCapacity = weekCap === null
+            ? Number.POSITIVE_INFINITY
+            : weekCap + weeklyFlexMinutes - weekUsed;
+          const available = Math.min(dayCapacity - shift.paidMinutes, weekCapacity);
+          return { shift, available: Math.max(0, Math.floor(available / 30) * 30) };
+        })
+        .filter((option) => option.available > 0)
+        .sort((a, b) => b.available - a.available || a.shift.date.localeCompare(b.shift.date));
+
+      const option = options[0];
+      if (!option) break;
+
+      const added = Math.min(remaining, option.available);
+      const date = option.shift.date;
+      const paidMinutes = option.shift.paidMinutes + added;
+      removeShift(state, option.shift);
+      applyShift(state, makeRoleAwareShift(state, employee, date, paidMinutes));
+      remaining -= added;
+      state.remaining.set(employee.id, remaining);
+    }
+  }
+}
+
 function thienlongDateCost(
   state: SchedulerState,
   isoDate: string,
@@ -1104,6 +1305,7 @@ function repairThienlongStaffing(state: SchedulerState): void {
         const from = shift.date;
         const worked = state.worked.get(employee.id)!;
         if (to === from || worked.has(to)) continue;
+        if (!matchesEmployeeDayRules(state, employee, to)) continue;
         const day = state.dayOf(to);
         if (day.closed || maxPaidForDay(day) < shift.paidMinutes) continue;
 
@@ -1180,6 +1382,7 @@ function repairDemand(state: SchedulerState, employeesById: Map<string, Employee
 
       for (const to of state.dates) {
         if (to === from || worked.has(to)) continue;
+        if (!matchesEmployeeDayRules(state, employee, to)) continue;
         const day = state.dayOf(to);
         if (day.closed || maxPaidForDay(day) < shift.paidMinutes) continue; // passt nicht
         if (state.isThienlong) {
@@ -1349,80 +1552,32 @@ function balanceShiftTypes(state: SchedulerState): void {
   }
 }
 
-/**
- * Obergrenze für EINEN Mitarbeiter: wie viele Tage und Stunden im Monat
- * überhaupt möglich sind. Greedy von vorn – an jedem offenen Tag arbeiten,
- * solange die 6-Tage-Regel es zulässt; danach zwingend ein freier Tag.
- * Das ist das Maximum, mehr geht rein rechnerisch nicht.
- */
-function monthCapacity(
-  dates: string[],
-  dayOf: (isoDate: string) => ResolvedDay,
-  capHours = 8,
-): { openDays: number; maxDays: number; maxMinutes: number } {
-  let openDays = 0;
-  let maxDays = 0;
-  let maxMinutes = 0;
-  let run = 0;
-
-  for (const isoDate of dates) {
-    const day = dayOf(isoDate);
-    if (day.closed) {
-      run = 0; // geschlossener Tag zählt als Pause
-      continue;
-    }
-    openDays += 1;
-    const hours = Math.min(maxShiftHoursForWindow(windowLength(day)), capHours);
-    if (hours < 4) continue; // Fenster zu kurz für die kürzeste Schicht
-
-    if (run >= 6) {
-      run = 0; // Pflicht-Ruhetag
-      continue;
-    }
-    run += 1;
-    maxDays += 1;
-    maxMinutes += hours * 60;
-  }
-
-  return { openDays, maxDays, maxMinutes };
-}
-
-/** Fehlermeldung, die auch sagt WARUM es nicht aufgeht. */
+/** Fallback only for genuinely impossible inputs; no speculative monthly cap. */
 function buildUnmetMessage(
   state: SchedulerState,
   unmet: Employee[],
   dates: string[],
   dayOf: (isoDate: string) => ResolvedDay,
 ): string {
-  const full = monthCapacity(dates, dayOf, PREFERRED_HOURS.VOLLZEIT);
-
-
+  const openDays = dates.filter((date) => !dayOf(date).closed).length;
   const missing = unmet
     .map((e) => {
       const short = state.remaining.get(e.id)!;
       const done = (e.targetMinutes - short) / 60;
-      const capMin = full.maxMinutes;
-      const overCap = e.targetMinutes > capMin ? ` — vượt trần ${capMin / 60}h` : "";
-      return `${e.name} chỉ xếp được ${done}h / ${e.targetMinutes / 60}h${overCap}`;
+      return `${e.name}: ${done}h / ${e.targetMinutes / 60}h, còn thiếu ${short / 60}h`;
     })
     .join("; ");
 
-  if (full.maxDays === 0) {
+  if (openDays === 0) {
     return (
       `Không xếp được ca nào (${missing}). ` +
-      `Tháng này có ${full.openDays} ngày mở cửa nhưng khung giờ làm quá ngắn — ` +
-      `không đủ cho cả ca ngắn nhất (4h). Hãy nới khung giờ làm ở tab Cài đặt.`
+      "Tháng này không có ngày mở cửa; hãy kiểm tra ngày đóng cửa và giờ làm."
     );
   }
 
-  // maxMinutes ist eine OBERGRENZE (jeden erlaubten Tag die längste Schicht).
-  // Der greedy Scheduler erreicht sie nicht immer – daher als Decke formulieren.
   return (
     `Không xếp đủ định mức: ${missing}. ` +
-    `Tháng này có ${full.openDays} ngày mở cửa; do quy tắc tối đa 6 ngày làm ` +
-    `liên tiếp, mỗi người làm được nhiều nhất ${full.maxDays} ngày — trần lý ` +
-    `thuyết ${full.maxMinutes / 60}h/người, thực tế thấp hơn. ` +
-    `Hãy giảm định mức, nới khung giờ làm, bớt ngày đóng cửa, hoặc thêm người.`
+    "Hãy kiểm tra ngày nghỉ cố định hoặc giờ mở cửa của tháng này."
   );
 }
 
@@ -1584,6 +1739,14 @@ export function generateSchedule(input: GenerateInput): Shift[] {
     state = attempt(true, `#${k}`);
   }
   if (incomplete(state)) state = attempt(false);
+
+  if (incomplete(state)) extendExistingShiftsToTargets(state);
+  if (incomplete(state) && state.isThienlong) {
+    extendExistingShiftsToTargets(
+      state,
+      AZUBI_WEEKLY_TARGET_FLEX_HOURS * 60,
+    );
+  }
 
   const unmet = employees.filter((e) => state.remaining.get(e.id)! > 0);
   if (unmet.length > 0) {

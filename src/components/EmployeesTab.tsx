@@ -3,6 +3,7 @@ import type { UseScheduleReturn } from "../hooks/useSchedule";
 import {
   AZUBI_MONTHLY_WARNING_HOURS,
   type EmploymentType,
+  type WeekdayName,
   type WorkRole,
 } from "../types";
 import { splitTargetHours } from "../lib/splitTargetHours";
@@ -15,6 +16,11 @@ import {
   azubiMonthlyMinutes,
   DEFAULT_AZUBI_CONFIG,
 } from "../lib/azubi";
+import {
+  hasRequiredFixedDaysOff,
+  requiredFixedDaysOff,
+  WEEKDAY_ORDER,
+} from "../lib/fixedDaysOff";
 
 const inputClass =
   "rounded border border-slate-300 px-2 py-1 text-sm focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-500";
@@ -24,6 +30,16 @@ const inputClass =
  * eng (6-Tage-Regel) und arbeitsrechtlich heikel.
  */
 export const WARN_HOURS = 192;
+
+const WEEKDAY_LABELS: Record<WeekdayName, string> = {
+  monday: "T2",
+  tuesday: "T3",
+  wednesday: "T4",
+  thursday: "T5",
+  friday: "T6",
+  saturday: "T7",
+  sunday: "CN",
+};
 
 /** Số ngày làm (= số ca) cho một mục tiêu, hoặc thông báo lỗi. */
 function splitInfo(targetHours: number, type: EmploymentType): { ok: boolean; text: string } {
@@ -50,7 +66,8 @@ export function EmployeesTab({ store }: { store: UseScheduleReturn }) {
       <h2 className="text-base font-semibold text-slate-900 mb-1">Nhân viên</h2>
       <p className="mb-4 text-xs text-slate-500">
         Bật “Lịch 2 quán” cho cùng nhân viên ở cả hai cửa hàng: Thienlong làm T2–T7,
-        Vietpho làm Chủ Nhật.
+        Vietpho làm Chủ Nhật. Cả hai quán đều cấu hình ngày nghỉ cố định: Vollzeit chọn 1 ngày,
+        Azubi chọn 2 ngày; Vietpho không cần chọn Bếp/Bồi.
       </p>
 
       {/* Thêm nhân viên mới */}
@@ -159,10 +176,13 @@ export function EmployeesTab({ store }: { store: UseScheduleReturn }) {
                 }
               : splitInfo(emp.targetMinutes / 60, emp.employmentType);
             const tooMany = !isAzubi && emp.targetMinutes / 60 > WARN_HOURS;
+            const requiredDaysOff = requiredFixedDaysOff(emp.employmentType);
+            const fixedDaysOff = emp.fixedDaysOff ?? [];
+            const fixedDaysComplete = hasRequiredFixedDaysOff(emp, store.storeId);
             return (
               <div
                 key={emp.id}
-                className="rounded-lg border border-slate-200 p-3 flex flex-col sm:flex-row sm:flex-wrap sm:items-end lg:flex-nowrap gap-3"
+                className="rounded-lg border border-slate-200 p-3 flex flex-col sm:flex-row sm:flex-wrap sm:items-end gap-3"
               >
                 <label className="flex flex-col sm:flex-1">
                   <span className="text-xs text-slate-500 mb-1 sm:hidden">Tên</span>
@@ -343,6 +363,71 @@ export function EmployeesTab({ store }: { store: UseScheduleReturn }) {
                     Xoá
                   </button>
                 </div>
+                {requiredDaysOff > 0 && (
+                  <div
+                    className={`order-last basis-full rounded-md border px-3 py-2 ${
+                      fixedDaysComplete
+                        ? "border-emerald-200 bg-emerald-50/70"
+                        : "border-amber-200 bg-amber-50/70"
+                    }`}
+                  >
+                    <div className="mb-2 flex flex-wrap items-center justify-between gap-1">
+                      <span className="text-xs font-medium text-slate-700">
+                        Ngày nghỉ cố định · chọn {requiredDaysOff} ngày/tuần
+                      </span>
+                      <span
+                        className={`text-xs ${
+                          fixedDaysComplete ? "text-emerald-700" : "text-amber-700"
+                        }`}
+                      >
+                        {fixedDaysOff.length}/{requiredDaysOff}
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-4 gap-1.5 sm:grid-cols-7">
+                      {WEEKDAY_ORDER.map((weekday) => {
+                        const selected = fixedDaysOff.includes(weekday);
+                        const lockedByStorePattern =
+                          emp.fixedStoreWeekPattern === true &&
+                          weekday === "sunday";
+                        const maxReached =
+                          requiredDaysOff > 1 &&
+                          fixedDaysOff.length >= requiredDaysOff &&
+                          !selected;
+                        return (
+                          <button
+                            key={weekday}
+                            type="button"
+                            aria-pressed={selected}
+                            aria-label={`${WEEKDAY_LABELS[weekday]} là ngày nghỉ cố định của ${emp.name}`}
+                            disabled={maxReached || lockedByStorePattern}
+                            onClick={() => {
+                              const next = selected
+                                ? fixedDaysOff.filter((day) => day !== weekday)
+                                : requiredDaysOff === 1
+                                  ? [weekday]
+                                  : [...fixedDaysOff, weekday];
+                              updateEmployee(emp.id, { fixedDaysOff: next });
+                            }}
+                            className={`rounded border px-2 py-1.5 text-xs font-medium transition-colors ${
+                              selected
+                                ? "border-slate-900 bg-slate-900 text-white"
+                                : "border-slate-300 bg-white text-slate-600 hover:border-slate-500"
+                            } disabled:cursor-not-allowed disabled:opacity-60`}
+                          >
+                            {WEEKDAY_LABELS[weekday]}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    {emp.fixedStoreWeekPattern && (
+                      <p className="mt-1.5 text-[11px] text-sky-700">
+                        {store.storeId === "thienlong"
+                          ? "Lịch 2 quán khóa CN là ngày nghỉ tại Thienlong."
+                          : "Lịch 2 quán khóa CN là ngày làm tại Vietpho."}
+                      </p>
+                    )}
+                  </div>
+                )}
               </div>
             );
           })}

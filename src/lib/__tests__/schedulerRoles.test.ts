@@ -80,4 +80,42 @@ describe("Thienlong role-aware scheduling", () => {
     expect(fridayAverage).toBeGreaterThan(quietDayAverage);
     expect(saturdayAverage).toBeGreaterThan(quietDayAverage);
   });
+
+  it("extends long split shifts through both meal peaks before using quiet edges", () => {
+    const activeDate = "2026-08-03";
+    const overrides = Object.fromEntries(
+      datesOfMonth(2026, 8)
+        .filter((date) => date !== activeDate)
+        .map((date) => [date, { date, closed: true }]),
+    );
+    const oneShiftEach = employees.slice(0, 7).map((employee) => ({
+      ...employee,
+      employmentType: "TEILZEIT" as const,
+      targetMinutes: 6 * 60,
+    }));
+
+    const shifts = generateSchedule({
+      year: 2026,
+      month: 8,
+      workHours: DEFAULT_WORK_HOURS,
+      overrides,
+      employees: oneShiftEach,
+      storeId: "thienlong",
+      seed: "meal-peak-extension",
+    });
+
+    const peakCentered = shifts.filter((shift) =>
+      shift.segments?.some(
+        (segment) =>
+          segment.startMinutes === 11 * 60 + 30 &&
+          segment.endMinutes === 14 * 60 + 30,
+      ) && shift.segments?.some(
+        (segment) =>
+          segment.startMinutes === 17 * 60 + 30 &&
+          segment.endMinutes === 20 * 60 + 30,
+      ),
+    );
+
+    expect(peakCentered.length).toBeGreaterThan(0);
+  });
 });

@@ -137,6 +137,7 @@ describe("Vietpho scheduling profile", () => {
         name: "Dinh Thuc Hoang",
         employmentType: "VOLLZEIT",
         targetMinutes: 168 * 60,
+        fixedDaysOff: ["monday"],
       },
       {
         id: "emp-1786085188261-602265",

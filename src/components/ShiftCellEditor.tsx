@@ -5,6 +5,7 @@ import { isoLabel } from "../lib/shiftOps";
 import { WEEKDAY_LABELS_VI, weekdayKeyOf, parseIsoDate } from "../lib/demand";
 import { resolveDay } from "../lib/workHours";
 import { holidaysOf } from "../lib/holidays";
+import { isEmployeeFixedDayOff } from "../lib/fixedDaysOff";
 
 const inputClass =
   "rounded border border-slate-300 px-2 py-1.5 text-sm focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-500";
@@ -24,6 +25,7 @@ export function ShiftCellEditor({
     store;
   const employee = schedule.employees.find((e) => e.id === employeeId)!;
   const shift = findShift(employeeId, date);
+  const fixedDayOff = isEmployeeFixedDayOff(employee, date, store.storeId);
 
   // Standardzeiten für eine neue Schicht = Arbeitszeit-Fenster dieses Tages
   // (inkl. Ausnahmen / Feiertag).
@@ -45,13 +47,16 @@ export function ShiftCellEditor({
 
   // Nhân viên còn rảnh trong ngày này (để „chuyển ca").
   const freeEmployees = schedule.employees.filter(
-    (e) => e.id !== employeeId && !findShift(e.id, date),
+    (e) =>
+      e.id !== employeeId &&
+      !findShift(e.id, date) &&
+      !isEmployeeFixedDayOff(e, date, store.storeId),
   );
 
   const weekday = WEEKDAY_LABELS_VI[weekdayKeyOf(parseIsoDate(date))];
 
   function save() {
-    if (parseError) return;
+    if (parseError || fixedDayOff) return;
     const s = timeToMinutes(start);
     const en = timeToMinutes(end);
     const p = Number(pause);
@@ -80,6 +85,11 @@ export function ShiftCellEditor({
           {resolved.closed && (
             <p className="text-xs text-rose-600 mt-0.5">
               Ngày này được đặt „đóng cửa" — ca thêm ở đây là ngoại lệ.
+            </p>
+          )}
+          {fixedDayOff && (
+            <p className="mt-0.5 text-xs font-medium text-amber-700">
+              Đây là ngày nghỉ cố định của nhân viên. Không thể thêm hoặc chỉnh ca ở ngày này.
             </p>
           )}
         </div>
@@ -146,10 +156,10 @@ export function ShiftCellEditor({
         <div className="flex flex-wrap items-center gap-2 border-t border-slate-200 px-4 py-3">
           <button
             onClick={save}
-            disabled={!!parseError}
+            disabled={!!parseError || fixedDayOff}
             className="rounded bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 active:bg-slate-800 disabled:opacity-40"
           >
-            {shift ? "Lưu" : "Thêm ca"}
+            {fixedDayOff ? "Ngày nghỉ cố định" : shift ? "Lưu" : "Thêm ca"}
           </button>
           {shift && (
             <>

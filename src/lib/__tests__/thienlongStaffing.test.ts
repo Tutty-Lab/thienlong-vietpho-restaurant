@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Employee } from "../../types";
 import { weekdayKeyOf, parseIsoDate, datesOfMonth } from "../demand";
 import { generateSchedule } from "../scheduler";
+import { validateSchedule } from "../validation";
 import { DEFAULT_WORK_HOURS } from "../workHours";
 
 const currentThienlongEmployees: Employee[] = [
@@ -18,6 +19,25 @@ const currentThienlongEmployees: Employee[] = [
   { id: "azubi-3", name: "Azubi 3", employmentType: "AZUBI", targetMinutes: 174 * 60, workRole: "SERVICE" },
   { id: "azubi-4", name: "Azubi 4", employmentType: "AZUBI", targetMinutes: 174 * 60, workRole: "KITCHEN" },
 ];
+
+const currentSettingsWithFixedDays: Employee[] = currentThienlongEmployees.map((employee) => {
+  const fixedDaysById: Record<string, Employee["fixedDaysOff"]> = {
+    "service-fixed": ["sunday"],
+    "kitchen-1": ["tuesday"],
+    "kitchen-2": ["wednesday"],
+    "kitchen-3": ["tuesday"],
+    "kitchen-4": ["tuesday"],
+    "azubi-1": ["tuesday", "wednesday"],
+    "azubi-2": ["sunday", "tuesday"],
+    "azubi-3": ["tuesday", "wednesday"],
+    "azubi-4": ["tuesday", "monday"],
+  };
+  return {
+    ...employee,
+    fixedStoreWeekPattern: employee.id === "service-fixed" || employee.id === "azubi-2",
+    fixedDaysOff: fixedDaysById[employee.id],
+  };
+});
 
 describe("Thienlong staffing bands", () => {
   it("keeps employee targets exact and separates quiet, Friday/Saturday, and Sunday demand", () => {
@@ -80,6 +100,37 @@ describe("Thienlong staffing bands", () => {
 
     expect(average(fridaySaturdayHours)).toBeGreaterThan(average(sundayHours));
     expect(average(sundayHours)).toBeGreaterThan(quietAverage);
+  });
+
+  it("finishes the current fixed-day targets by extending existing visits", () => {
+    const shifts = generateSchedule({
+      year: 2026,
+      month: 8,
+      workHours: DEFAULT_WORK_HOURS,
+      holidays: new Set<string>(),
+      employees: currentSettingsWithFixedDays,
+      storeId: "thienlong",
+      seed: "current-fixed-day-targets",
+    });
+
+    for (const employee of currentSettingsWithFixedDays) {
+      expect(
+        shifts
+          .filter((shift) => shift.employeeId === employee.id)
+          .reduce((sum, shift) => sum + shift.paidMinutes, 0),
+        employee.id,
+      ).toBe(employee.targetMinutes);
+    }
+    expect(Math.max(...shifts.map((shift) => shift.paidMinutes))).toBe(10 * 60);
+    expect(
+      validateSchedule(currentSettingsWithFixedDays, shifts, {
+        year: 2026,
+        month: 8,
+        storeId: "thienlong",
+        workHours: DEFAULT_WORK_HOURS,
+        holidayState: "BW",
+      }).errors,
+    ).toEqual([]);
   });
 
   it.each([1, 12])("keeps the staffing caps in month %s", (month) => {

@@ -24,7 +24,7 @@ function shift(patch: Partial<Shift>): Shift {
 
 describe("Zuschlaege", () => {
   it("counts the exact portion after 20:00 for continuous and split shifts", () => {
-    expect(shiftMinutesAfter20(shift({}))).toBe(2 * 60);
+    expect(shiftMinutesAfter20(shift({ date: "2026-08-03" }))).toBe(2 * 60);
     expect(
       shiftMinutesAfter20(
         shift({
@@ -37,19 +37,20 @@ describe("Zuschlaege", () => {
         }),
       ),
     ).toBe(0);
+    expect(shiftMinutesAfter20(shift({ date: "2026-08-02" }))).toBe(0);
   });
 
-  it("adds paid Sunday hours independently from hours after 20:00", () => {
+  it("counts Sunday separately and limits Nacht hours to Monday-Saturday", () => {
     const sunday = shift({ date: "2026-08-02", paidMinutes: 5.5 * 60 });
     const monday = shift({ id: "monday", date: "2026-08-03", paidMinutes: 5.5 * 60 });
 
     expect(zuschlagTotals([sunday, monday])).toEqual({
-      after20Minutes: 4 * 60,
+      after20Minutes: 2 * 60,
       sundayMinutes: 5.5 * 60,
     });
   });
 
-  it("stacks Sunday and after-20 percentages as bonus-equivalent minutes", () => {
+  it("does not stack the Nacht bonus on top of the Sunday bonus", () => {
     const sunday = shift({
       date: "2026-08-02",
       startMinutes: 18 * 60,
@@ -64,12 +65,12 @@ describe("Zuschlaege", () => {
       }),
     ).toEqual({
       sundayMinutes: 4 * 60,
-      after20Minutes: 2 * 60,
+      after20Minutes: 0,
       sundayPercent: 50,
       after20Percent: 25,
       sundayBonusMinutes: 2 * 60,
-      after20BonusMinutes: 30,
-      totalBonusMinutes: 2.5 * 60,
+      after20BonusMinutes: 0,
+      totalBonusMinutes: 2 * 60,
     });
   });
 
