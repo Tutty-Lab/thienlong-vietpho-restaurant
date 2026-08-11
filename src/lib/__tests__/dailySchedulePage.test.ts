@@ -99,7 +99,8 @@ describe("DailySchedulePage", () => {
   it("renders the complete roster and only shifts from the selected date", () => {
     const html = render("2026-08-08");
 
-    expect(html).toContain("Tagesdienstplan");
+    expect(html).toContain("Stundenaufzeichnung - Tagesübersicht");
+    expect(html).toContain("print-document-page");
     expect(html).toContain("Firmenname");
     expect(html).toContain("Wochentag");
     expect(html).toContain("Samstag");
@@ -121,6 +122,7 @@ describe("DailySchedulePage", () => {
     expect(html).toContain("Geteilter Dienst");
     expect(html).toContain("Spätdienst");
     expect(html).toContain("Erstellt von");
+    expect(html).toContain("Zuschlagsstunden");
     expect(html).toContain("Zuschläge");
     expect(html).toContain("Ab 20:00");
     expect(html).toContain("+1,00 h");

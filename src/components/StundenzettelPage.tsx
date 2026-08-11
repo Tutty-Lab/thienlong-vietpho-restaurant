@@ -57,7 +57,7 @@ export function StundenzettelPage({
   );
 
   return (
-    <div className="stundenzettel-page bg-white text-slate-900 mx-auto max-w-[210mm] p-6 text-[12px]">
+    <div className="print-document-page stundenzettel-page bg-white text-slate-900 mx-auto max-w-[210mm] p-6 text-[12px]">
       <div className="flex items-start justify-between border-b-2 border-slate-800 pb-2 mb-3">
         <div>
           <h2 className="text-xl font-bold tracking-tight">Stundenaufzeichnung</h2>

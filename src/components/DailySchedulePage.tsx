@@ -77,10 +77,10 @@ export function DailySchedulePage({ schedule, date }: { schedule: Schedule; date
     dailySurcharges.after20Minutes > 0 || dailySurcharges.sundayMinutes > 0;
 
   return (
-    <div className="daily-schedule-page mx-auto min-h-[297mm] max-w-[210mm] bg-white p-6 text-[12px] text-slate-900">
+    <div className="print-document-page daily-schedule-page mx-auto max-w-[210mm] bg-white p-6 text-[12px] text-slate-900">
       <div className="mb-3 flex items-start justify-between border-b-2 border-slate-800 pb-2">
         <div>
-          <h2 className="text-xl font-bold tracking-tight">Tagesdienstplan</h2>
+          <h2 className="text-xl font-bold tracking-tight">Stundenaufzeichnung - Tagesübersicht</h2>
           <p className="text-slate-600">{schedule.companyName || "—"}</p>
           {schedule.address && <p className="text-[11px] text-slate-500">{schedule.address}</p>}
         </div>
@@ -209,9 +209,13 @@ export function DailySchedulePage({ schedule, date }: { schedule: Schedule; date
         </section>
       )}
 
-      <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 text-[12px] sm:grid-cols-2">
+      <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 text-[12px] sm:grid-cols-3">
         <Stat label="Im Einsatz" value={`${shifts.length} Pers.`} />
         <Stat label="Gesamtstunden" value={`${minutesToDecimalHours(totalMinutes)} h`} />
+        <Stat
+          label="Zuschlagsstunden"
+          value={`+${minutesToDecimalHours(dailySurcharges.totalBonusMinutes)} h`}
+        />
       </div>
 
       <div className="mt-10 grid grid-cols-3 gap-8 text-[11px]">

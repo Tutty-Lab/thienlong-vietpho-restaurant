@@ -52,7 +52,13 @@ body {
   pointer-events: none;
 }
 
-/* ===================== Druck: Stundenzettel / Tagesdienstplan ===================== */
+/* ===================== Druck: Stundenzettel / Tagesübersicht ===================== */
+.print-document-page {
+  box-sizing: border-box;
+  width: 210mm;
+  min-height: 297mm;
+}
+
 @media print {
   body {
     background: #fff;
@@ -63,17 +69,14 @@ body {
   .print-area {
     display: block !important;
   }
-  .stundenzettel-page {
+  .print-document-page {
     page-break-after: always;
     padding: 0;
-  }
-  .stundenzettel-page:last-child {
-    page-break-after: auto;
-  }
-  .daily-schedule-page {
     min-height: auto;
+    width: 100%;
+  }
+  .print-document-page:last-child {
     page-break-after: auto;
-    padding: 0;
   }
   @page {
     size: A4;

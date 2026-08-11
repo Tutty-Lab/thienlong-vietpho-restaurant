@@ -96,7 +96,7 @@ export function StundenzettelTab({ store }: { store: UseScheduleReturn }) {
       );
       await elementsToPdf(
         pages,
-        `Tagesdienstplan_${safeFileName(schedule.companyName || "Betrieb")}_${selectedDate}.pdf`,
+        `Stundenaufzeichnung_Tag_${safeFileName(schedule.companyName || "Betrieb")}_${selectedDate}.pdf`,
       );
     } catch (err) {
       alert(`Không tạo được PDF: ${err instanceof Error ? err.message : String(err)}`);
@@ -219,8 +219,9 @@ export function StundenzettelTab({ store }: { store: UseScheduleReturn }) {
         </div>
 
         <p className="text-xs text-slate-500 mb-3">
-          Tờ in <span className="font-medium">Stundenaufzeichnung</span> theo mẫu tiếng Đức (dùng nộp
-          tại Đức). <span className="font-medium">Xuất PDF</span> tải trực tiếp file .pdf về máy.{" "}
+          Tờ in tháng và theo ngày dùng cùng định dạng{" "}
+          <span className="font-medium">Stundenaufzeichnung</span> bằng tiếng Đức. {" "}
+          <span className="font-medium">Xuất PDF</span> tải trực tiếp file .pdf về máy.{" "}
           <span className="font-medium">In</span> mở hộp thoại in; nếu in ra giấy thì chọn lề „Chuẩn",
           tỉ lệ 100 %.
         </p>
