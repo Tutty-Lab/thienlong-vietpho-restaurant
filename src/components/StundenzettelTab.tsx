@@ -21,7 +21,10 @@ export function StundenzettelTab({ store }: { store: UseScheduleReturn }) {
     () => datesOfMonth(schedule.year, schedule.month),
     [schedule.year, schedule.month],
   );
-  const [selectedId, setSelectedId] = useState<string>(schedule.employees[0]?.id ?? "");
+  // who: "all" = ganzer Laden, sonst eine employeeId. what: Monats-Stundenzettel
+  // oder der Tagesplan.
+  const [who, setWho] = useState<string>("all");
+  const [what, setWhat] = useState<"stundenzettel" | "daily">("stundenzettel");
   const [selectedDate, setSelectedDate] = useState(() => {
     const today = localIsoDate(new Date());
     return dates.includes(today) ? today : dates[0];
@@ -34,8 +37,11 @@ export function StundenzettelTab({ store }: { store: UseScheduleReturn }) {
   const timesheetPdfStage = useRef<HTMLDivElement>(null);
   const dailyPdfStage = useRef<HTMLDivElement>(null);
 
-  const selected =
-    schedule.employees.find((e) => e.id === selectedId) ?? schedule.employees[0] ?? null;
+  const chosenEmployees =
+    who === "all" ? schedule.employees : schedule.employees.filter((e) => e.id === who);
+  const previewEmployee =
+    who === "all" ? schedule.employees[0] ?? null : chosenEmployees[0] ?? null;
+  const whoTag = who === "all" ? "tat_ca" : safeFileName(previewEmployee?.name ?? who);
 
   const monthTag = `${schedule.year}-${String(schedule.month).padStart(2, "0")}`;
 
@@ -123,117 +129,103 @@ export function StundenzettelTab({ store }: { store: UseScheduleReturn }) {
     <>
       {/* Điều khiển (không in) */}
       <div className="no-print">
-        <div
-          aria-label="In hoặc xuất lịch làm việc theo ngày"
-          className="mb-4 flex flex-wrap items-end gap-2 rounded-lg border border-slate-200 bg-white p-3"
-        >
-          <label className="min-w-[190px] flex-1 text-sm text-slate-600">
-            <span className="mb-1 block text-xs font-medium text-slate-500">Ngày cần in / xuất</span>
-            <select
-              value={selectedDate}
-              onChange={(event) => setSelectedDate(event.target.value)}
-              className="w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800"
-            >
-              {dates.map((date) => (
-                <option key={date} value={date}>
-                  {WEEKDAY_SHORT_VI[weekdayKeyOf(parseIsoDate(date))]} · {isoLabel(date)}
-                </option>
-              ))}
-            </select>
-          </label>
-          <button
-            type="button"
-            disabled={pdfBusy}
-            onClick={() => void exportSelectedDatePdf()}
-            className="w-full rounded bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 active:bg-slate-800 disabled:opacity-40 sm:w-auto"
-          >
-            Xuất PDF — ngày đã chọn
-          </button>
-          <button
-            type="button"
-            disabled={pdfBusy}
-            onClick={printSelectedDate}
-            className="w-full rounded border border-slate-300 bg-white px-4 py-2 text-sm hover:bg-slate-50 disabled:opacity-40 sm:w-auto"
-          >
-            In — ngày đã chọn
-          </button>
-          {pdfBusy && pdfDate && (
-            <span className="self-center text-sm text-slate-500">Đang tạo PDF…</span>
-          )}
-        </div>
+        {/* ---- In & Xuất ---- */}
+        <div className="rounded-lg border border-slate-200 bg-white p-3 mb-4">
+          <div className="text-sm font-medium text-slate-700 mb-2">In &amp; Xuất file</div>
+          <div className="flex flex-wrap items-end gap-3">
+            <label className="flex flex-col gap-1">
+              <span className="text-xs text-slate-500">Cho ai</span>
+              <select
+                className="rounded border border-slate-300 px-2 py-2 text-sm min-w-[10rem]"
+                value={who}
+                onChange={(e) => setWho(e.target.value)}
+              >
+                <option value="all">Tất cả (cả quán)</option>
+                {schedule.employees.map((e) => (
+                  <option key={e.id} value={e.id}>
+                    {e.name}
+                  </option>
+                ))}
+              </select>
+            </label>
 
-        <div className="flex flex-wrap items-center gap-2 mb-3">
-          <label className="text-sm text-slate-600">Nhân viên:</label>
-          <select
-            className="rounded border border-slate-300 px-2 py-2 text-sm"
-            value={selected?.id ?? ""}
-            onChange={(e) => setSelectedId(e.target.value)}
-          >
-            {schedule.employees.map((e) => (
-              <option key={e.id} value={e.id}>
-                {e.name}
-              </option>
-            ))}
-          </select>
-        </div>
+            <label className="flex flex-col gap-1">
+              <span className="text-xs text-slate-500">Nội dung</span>
+              <select
+                className="rounded border border-slate-300 px-2 py-2 text-sm min-w-[14rem]"
+                value={what}
+                onChange={(e) => setWhat(e.target.value as "stundenzettel" | "daily")}
+              >
+                <option value="stundenzettel">Bảng chấm công (Stundenzettel) — cả tháng</option>
+                <option value="daily">Lịch làm việc — theo ngày</option>
+              </select>
+            </label>
 
-        {/* 4 thao tác: PDF / In, cho một người hoặc tất cả */}
-        <div className="flex flex-wrap items-center gap-2 mb-3">
-          <button
-            disabled={pdfBusy || !selected}
-            onClick={() =>
-              selected &&
-              void doPdf(
-                [selected],
-                `Stundenzettel_${safeFileName(selected.name)}_${monthTag}.pdf`,
-              )
-            }
-            className="rounded bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 active:bg-slate-800 disabled:opacity-40"
-          >
-            Xuất PDF — người đang chọn
-          </button>
-          <button
-            disabled={pdfBusy}
-            onClick={() => void doPdf(schedule.employees, `Stundenzettel_tat_ca_${monthTag}.pdf`)}
-            className="rounded bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 active:bg-slate-800 disabled:opacity-40"
-          >
-            Xuất PDF — tất cả
-          </button>
-          <button
-            disabled={pdfBusy || !selected}
-            onClick={() => selected && doPrint([selected])}
-            className="rounded border border-slate-300 bg-white px-4 py-2 text-sm hover:bg-slate-50 disabled:opacity-40"
-          >
-            In — người đang chọn
-          </button>
-          <button
-            disabled={pdfBusy}
-            onClick={() => doPrint(schedule.employees)}
-            className="rounded border border-slate-300 bg-white px-4 py-2 text-sm hover:bg-slate-50 disabled:opacity-40"
-          >
-            In — tất cả
-          </button>
-          {pdfBusy && !pdfDate && (
-            <span className="text-sm text-slate-500">Đang tạo PDF…</span>
-          )}
-        </div>
+            {what === "daily" && (
+              <label className="flex flex-col gap-1">
+                <span className="text-xs text-slate-500">Ngày</span>
+                <select
+                  value={selectedDate}
+                  onChange={(event) => setSelectedDate(event.target.value)}
+                  className="rounded border border-slate-300 bg-white px-2 py-2 text-sm text-slate-800 min-w-[10rem]"
+                >
+                  {dates.map((date) => (
+                    <option key={date} value={date}>
+                      {WEEKDAY_SHORT_VI[weekdayKeyOf(parseIsoDate(date))]} · {isoLabel(date)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
 
-        <p className="text-xs text-slate-500 mb-3">
-          Tờ in tháng và theo ngày dùng cùng định dạng{" "}
-          <span className="font-medium">Stundenaufzeichnung</span> bằng tiếng Đức. {" "}
-          <span className="font-medium">Xuất PDF</span> tải trực tiếp file .pdf về máy.{" "}
-          <span className="font-medium">In</span> mở hộp thoại in; nếu in ra giấy thì chọn lề „Chuẩn",
-          tỉ lệ 100 %.
-        </p>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                disabled={pdfBusy}
+                onClick={() => {
+                  if (what === "daily") printSelectedDate();
+                  else doPrint(chosenEmployees);
+                }}
+                className="rounded border border-slate-300 bg-white px-4 py-2 text-sm hover:bg-slate-50 disabled:opacity-40"
+              >
+                🖨 In
+              </button>
+              <button
+                type="button"
+                disabled={pdfBusy}
+                onClick={() => {
+                  if (what === "daily") void exportSelectedDatePdf();
+                  else void doPdf(chosenEmployees, `Stundenzettel_${whoTag}_${monthTag}.pdf`);
+                }}
+                className="rounded bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 active:bg-slate-800 disabled:opacity-40"
+              >
+                ⬇ Xuất PDF
+              </button>
+              {pdfBusy && <span className="text-sm text-slate-500">Đang tạo PDF…</span>}
+            </div>
+          </div>
+
+          <p className="mt-2 text-xs text-slate-500">
+            <b>Bảng chấm công (Stundenzettel)</b> theo mẫu tiếng Đức để nộp — một tờ mỗi người, cả
+            tháng. <b>Lịch làm việc theo ngày</b> in lịch cả quán cho một ngày. Xuất PDF tải thẳng
+            file .pdf về máy; In mở hộp thoại in (lề „Chuẩn", tỉ lệ 100 %).
+          </p>
+        </div>
 
         {/* Xem trước trên màn hình cho nhân viên đã chọn */}
-        {selected && (
-          <div className="rounded-lg border border-slate-300 shadow-sm bg-white overflow-x-auto">
-            <StundenzettelPage
-              schedule={schedule}
-              employee={selected}
-            />
-          </div>
+        {previewEmployee && (
+          <>
+            <div className="mb-1 text-xs text-slate-500">
+              Xem trước bảng chấm công: <b>{previewEmployee.name}</b>
+              {who === "all" && " (chọn một người ở ô „Cho ai“ để xem người khác)"}
+            </div>
+            <div className="rounded-lg border border-slate-300 shadow-sm bg-white overflow-x-auto">
+              <StundenzettelPage
+                schedule={schedule}
+                employee={previewEmployee}
+              />
+            </div>
+          </>
         )}
       </div>
 
