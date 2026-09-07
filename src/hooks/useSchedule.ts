@@ -4,7 +4,7 @@
 // ============================================================================
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { Employee, EmploymentType, Schedule, Shift, WorkRole } from "../types";
+import type { Employee, Schedule, Shift } from "../types";
 import { generateSchedule } from "../lib/scheduler";
 import { validateSchedule, type ValidationResult } from "../lib/validation";
 import { clearState, loadState, saveState, type PersistedState } from "../lib/storage";
@@ -19,7 +19,6 @@ import {
 } from "../lib/workHours";
 import { loadStoreId, saveStoreId, storeById, type StoreConfig } from "../lib/stores";
 import {
-  azubiMonthlyMinutes,
   defaultAzubiConfig,
   withAutomaticAzubiTarget,
 } from "../lib/azubi";
@@ -233,30 +232,30 @@ export function useSchedule() {
 
   // ----- Mitarbeiter -----
   const addEmployee = useCallback(
-    (
-      name: string,
-      employmentType: EmploymentType,
-      targetHours: number,
-      workRole?: WorkRole,
-    ) => {
+    (data: Omit<Employee, "id">): string => {
+      const id = newEmployeeId();
       setSchedule((s) => {
-        const azubi = employmentType === "AZUBI" ? defaultAzubiConfig() : undefined;
-        const emp: Employee = {
-          id: newEmployeeId(),
-          name: name.trim() || "Neuer Mitarbeiter",
-          employmentType,
-          targetMinutes:
-            employmentType === "AZUBI"
-              ? azubiMonthlyMinutes(azubi, s.year, s.month)
-              : Math.round(targetHours) * 60,
-          azubi,
-          workRole,
-          fixedDaysOff: employmentType === "TEILZEIT" ? undefined : [],
-        };
+        const azubi =
+          data.employmentType === "AZUBI" ? data.azubi ?? defaultAzubiConfig() : undefined;
+        const emp: Employee = normalizeEmployee(
+          {
+            ...data,
+            id,
+            name: data.name.trim() || "Neuer Mitarbeiter",
+            azubi,
+            // Vollzeit/Azubi brauchen feste Ruhetage; Teilzeit nicht.
+            fixedDaysOff:
+              data.employmentType === "TEILZEIT" ? undefined : data.fixedDaysOff ?? [],
+          },
+          s.year,
+          s.month,
+          storeId,
+        );
         return { ...s, employees: [...s.employees, emp] };
       });
+      return id;
     },
-    [],
+    [storeId],
   );
 
   const updateEmployee = useCallback((id: string, patch: Partial<Employee>) => {
