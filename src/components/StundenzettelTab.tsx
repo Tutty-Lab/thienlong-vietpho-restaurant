@@ -7,6 +7,7 @@ import { DailySchedulePage } from "./DailySchedulePage";
 import { elementsToPdf, safeFileName } from "../lib/pdf";
 import { datesOfMonth, parseIsoDate, WEEKDAY_SHORT_VI, weekdayKeyOf } from "../lib/demand";
 import { isoLabel } from "../lib/shiftOps";
+import { weeksOfMonth } from "../lib/weeks";
 
 function localIsoDate(date: Date): string {
   const year = date.getFullYear();
@@ -21,10 +22,14 @@ export function StundenzettelTab({ store }: { store: UseScheduleReturn }) {
     () => datesOfMonth(schedule.year, schedule.month),
     [schedule.year, schedule.month],
   );
-  // who: "all" = ganzer Laden, sonst eine employeeId. what: Monats-Stundenzettel
-  // oder der Tagesplan.
+  const weeks = useMemo(
+    () => weeksOfMonth(schedule.year, schedule.month),
+    [schedule.year, schedule.month],
+  );
+  // who: "all" = ganzer Laden, sonst eine employeeId.
+  // what: "stundenzettel" (Monat) | "sz-<weekStart>" (Woche) | "daily" (Tagesplan).
   const [who, setWho] = useState<string>("all");
-  const [what, setWhat] = useState<"stundenzettel" | "daily">("stundenzettel");
+  const [what, setWhat] = useState<string>("stundenzettel");
   const [selectedDate, setSelectedDate] = useState(() => {
     const today = localIsoDate(new Date());
     return dates.includes(today) ? today : dates[0];
@@ -36,6 +41,9 @@ export function StundenzettelTab({ store }: { store: UseScheduleReturn }) {
   const [pdfBusy, setPdfBusy] = useState(false);
   const timesheetPdfStage = useRef<HTMLDivElement>(null);
   const dailyPdfStage = useRef<HTMLDivElement>(null);
+  // Zeitraum für den Stundenzettel: gesetzt => Wochen-Zettel, leer => Monat.
+  const [szDates, setSzDates] = useState<string[] | undefined>(undefined);
+  const [szLabel, setSzLabel] = useState<string | undefined>(undefined);
 
   const chosenEmployees =
     who === "all" ? schedule.employees : schedule.employees.filter((e) => e.id === who);
@@ -44,6 +52,13 @@ export function StundenzettelTab({ store }: { store: UseScheduleReturn }) {
   const whoTag = who === "all" ? "tat_ca" : safeFileName(previewEmployee?.name ?? who);
 
   const monthTag = `${schedule.year}-${String(schedule.month).padStart(2, "0")}`;
+
+  // Wochen-Stundenzettel: nur die Tage dieser Woche, mit Wochentitel oben rechts.
+  function szWeekFor(weekStart: string): { dates: string[]; label: string } | null {
+    const w = weeks.find((x) => x.weekStart === weekStart);
+    if (!w) return null;
+    return { dates: w.dates, label: `Woche ${w.label}${schedule.year}` };
+  }
 
   useEffect(() => {
     if (!dates.includes(selectedDate)) {
@@ -54,10 +69,12 @@ export function StundenzettelTab({ store }: { store: UseScheduleReturn }) {
 
   // Vùng in phải được render TRƯỚC khi gọi print, và print phải nằm trong cùng
   // thao tác chạm (mobile chặn print ngoài gesture). flushSync render đồng bộ.
-  function doPrint(list: Employee[]) {
+  function doPrint(list: Employee[], sz?: { dates?: string[]; label?: string }) {
     if (list.length === 0) return;
     flushSync(() => {
       setPrintDate(null);
+      setSzDates(sz?.dates);
+      setSzLabel(sz?.label);
       setPrintList(list);
     });
     window.print();
@@ -67,10 +84,18 @@ export function StundenzettelTab({ store }: { store: UseScheduleReturn }) {
    * PDF: các trang phải được render thật (không display:none) thì html2canvas
    * mới chụp được – vì vậy dùng "sân khấu" nằm ngoài màn hình.
    */
-  async function doPdf(list: Employee[], filename: string) {
+  async function doPdf(
+    list: Employee[],
+    filename: string,
+    sz?: { dates?: string[]; label?: string },
+  ) {
     if (list.length === 0 || pdfBusy) return;
     setPdfBusy(true);
-    flushSync(() => setPdfList(list));
+    flushSync(() => {
+      setSzDates(sz?.dates);
+      setSzLabel(sz?.label);
+      setPdfList(list);
+    });
     try {
       const pages = Array.from(
         timesheetPdfStage.current?.querySelectorAll<HTMLElement>(".stundenzettel-page") ?? [],
@@ -154,9 +179,14 @@ export function StundenzettelTab({ store }: { store: UseScheduleReturn }) {
               <select
                 className="rounded border border-slate-300 px-2 py-2 text-sm min-w-[14rem]"
                 value={what}
-                onChange={(e) => setWhat(e.target.value as "stundenzettel" | "daily")}
+                onChange={(e) => setWhat(e.target.value)}
               >
                 <option value="stundenzettel">Bảng chấm công (Stundenzettel) — cả tháng</option>
+                {weeks.map((w) => (
+                  <option key={`sz-${w.weekStart}`} value={`sz-${w.weekStart}`}>
+                    Bảng chấm công (Stundenzettel) — tuần {w.label}
+                  </option>
+                ))}
                 <option value="daily">Lịch làm việc — theo ngày</option>
               </select>
             </label>
@@ -184,7 +214,10 @@ export function StundenzettelTab({ store }: { store: UseScheduleReturn }) {
                 disabled={pdfBusy}
                 onClick={() => {
                   if (what === "daily") printSelectedDate();
-                  else doPrint(chosenEmployees);
+                  else if (what.startsWith("sz-")) {
+                    const sz = szWeekFor(what.slice(3));
+                    if (sz) doPrint(chosenEmployees, sz);
+                  } else doPrint(chosenEmployees);
                 }}
                 className="rounded border border-slate-300 bg-white px-4 py-2 text-sm hover:bg-slate-50 disabled:opacity-40"
               >
@@ -195,7 +228,17 @@ export function StundenzettelTab({ store }: { store: UseScheduleReturn }) {
                 disabled={pdfBusy}
                 onClick={() => {
                   if (what === "daily") void exportSelectedDatePdf();
-                  else void doPdf(chosenEmployees, `Stundenzettel_${whoTag}_${monthTag}.pdf`);
+                  else if (what.startsWith("sz-")) {
+                    const weekStart = what.slice(3);
+                    const sz = szWeekFor(weekStart);
+                    if (sz) {
+                      void doPdf(
+                        chosenEmployees,
+                        `Stundenzettel_${whoTag}_${monthTag}_tuan_${weekStart}.pdf`,
+                        sz,
+                      );
+                    }
+                  } else void doPdf(chosenEmployees, `Stundenzettel_${whoTag}_${monthTag}.pdf`);
                 }}
                 className="rounded bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 active:bg-slate-800 disabled:opacity-40"
               >
@@ -236,6 +279,8 @@ export function StundenzettelTab({ store }: { store: UseScheduleReturn }) {
             key={emp.id}
             schedule={schedule}
             employee={emp}
+            dates={szDates}
+            periodLabel={szLabel}
           />
         ))}
         {printDate && <DailySchedulePage schedule={schedule} date={printDate} />}
@@ -248,6 +293,8 @@ export function StundenzettelTab({ store }: { store: UseScheduleReturn }) {
             key={emp.id}
             schedule={schedule}
             employee={emp}
+            dates={szDates}
+            periodLabel={szLabel}
           />
         ))}
       </div>
