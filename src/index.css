@@ -36,57 +36,11 @@ body {
   @apply ring-2 ring-rose-300;
 }
 
-/* Druckbereich am Bildschirm ausgeblendet, nur beim Drucken sichtbar. */
-.print-area {
-  display: none;
-}
-
-/* Bühne für den PDF-Export: muss wirklich gerendert sein (display:none kann
-   html2canvas nicht aufnehmen), liegt deshalb nur außerhalb des Sichtfelds. */
-.pdf-stage {
-  position: absolute;
-  top: 0;
-  left: -10000px;
-  width: 210mm;
-  background: #fff;
-  pointer-events: none;
-}
-
-/* ===================== Druck: Stundenzettel / Tagesübersicht ===================== */
+/* A4-Breite für die Bildschirm-Vorschau des Stundenzettels. Der Export selbst
+   läuft nicht mehr über den Browser-Druck, sondern zeichnet die PDF direkt als
+   Vektor (siehe src/lib/pdf.ts) – deshalb kein @media print / @page mehr. */
 .print-document-page {
   box-sizing: border-box;
   width: 210mm;
   min-height: 297mm;
-}
-
-@media print {
-  body {
-    background: #fff;
-  }
-  .no-print {
-    display: none !important;
-  }
-  .print-area {
-    display: block !important;
-  }
-  .print-document-page {
-    page-break-after: always;
-    padding: 0;
-    min-height: auto;
-    width: 100%;
-  }
-  .print-document-page:last-child {
-    page-break-after: auto;
-  }
-  @page {
-    size: A4;
-    margin: 0;
-  }
-}
-
-@media print {
-  /* Kein Seitenrand auf @page => der Browser druckt KEINE Kopf-/Fusszeile mehr
-     (kein Dokumenttitel, kein Datum, keine .vercel.app-URL). Der Rand liegt
-     stattdessen als Innenabstand auf der gedruckten Seite. */
-  .stundenzettel-page { padding: 14mm !important; }
 }
