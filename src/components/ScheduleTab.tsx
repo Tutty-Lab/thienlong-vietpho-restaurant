@@ -73,17 +73,27 @@ export function ScheduleTab({ store }: { store: UseScheduleReturn }) {
     [schedule.dateOverrides],
   );
 
-  // Tổng theo ngày cho các dòng chân bảng.
+  // Tổng theo ngày cho các dòng chân bảng. Phân loại theo GIỜ THỰC TẾ chứ không
+  // theo shiftType: một ca tách (làm cả trưa lẫn tối) trước đây bị gộp vào "Ca
+  // tối" nên buổi sáng trông trống dù thực tế vẫn có người. Giờ:
+  //   sáng  = chỉ làm buổi trưa/sáng
+  //   tối   = chỉ làm buổi tối
+  //   cả ngày = làm cả hai buổi (ca tách hoặc ca dài xuyên suốt)
   const dayStats = useMemo(() => {
-    const stats = new Map<string, { count: number; total: number; early: number; late: number }>();
-    for (const d of dates) stats.set(d, { count: 0, total: 0, early: 0, late: 0 });
+    type DayStat = { count: number; total: number; early: number; late: number; both: number };
+    const stats = new Map<string, DayStat>();
+    for (const d of dates) stats.set(d, { count: 0, total: 0, early: 0, late: 0, both: 0 });
     for (const s of schedule.shifts) {
       const st = stats.get(s.date);
       if (!st) continue;
       st.count += 1;
       st.total += s.paidMinutes;
-      if (s.shiftType === "EARLY") st.early += 1;
-      else st.late += 1; // LATE hoặc CUSTOM tính là ca tối
+      const segments = s.segments ?? [{ startMinutes: s.startMinutes, endMinutes: s.endMinutes }];
+      const worksMidday = segments.some((g) => g.startMinutes < 14 * 60); // có mặt buổi trưa
+      const worksEvening = segments.some((g) => g.endMinutes > 17 * 60); // có mặt buổi tối
+      if (worksMidday && worksEvening) st.both += 1;
+      else if (worksMidday) st.early += 1;
+      else st.late += 1;
     }
     return stats;
   }, [dates, schedule.shifts]);
@@ -300,6 +310,7 @@ export function ScheduleTab({ store }: { store: UseScheduleReturn }) {
               />
               <SummaryRow label="Ca sáng" dates={dates} value={(d) => String(dayStats.get(d)!.early)} />
               <SummaryRow label="Ca tối" dates={dates} value={(d) => String(dayStats.get(d)!.late)} />
+              <SummaryRow label="Cả ngày" dates={dates} value={(d) => String(dayStats.get(d)!.both)} />
             </tfoot>
           </table>
         </div>
