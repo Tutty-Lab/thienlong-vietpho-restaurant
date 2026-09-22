@@ -55,52 +55,69 @@ const referenceInterval = (
   personHours,
 });
 
+// Die Zahlen sind reine RELATIVE Gewichte (dimensionslos, werden zu Anteilen
+// normiert). Sie bestimmen nur die FORM des Tages – wie viele echte Leute
+// daraus werden, ergibt sich aus dem tatsächlichen Team und seinen Stunden.
+//
+// Mo–Do: 10:30 Öffnung braucht wenig Personal, am dichtesten 12:00–14:00 und
+// 17:30–20:30, gegen 22:00 wieder dünn. Blocks: 10:30–15:00 + 16:30–22:00.
 const WEEKDAY: ReferenceProfile = {
   KITCHEN: [
-    referenceInterval(10 * 60 + 30, 12 * 60, 3),
-    referenceInterval(12 * 60, 14 * 60, 7),
+    referenceInterval(10 * 60 + 30, 11 * 60 + 30, 1), // Öffnung: dünn
+    referenceInterval(11 * 60 + 30, 12 * 60, 1.5),
+    referenceInterval(12 * 60, 14 * 60, 7), // Mittag: Spitze
     referenceInterval(14 * 60, 15 * 60, 2),
-    referenceInterval(16 * 60 + 30, 18 * 60, 3),
-    referenceInterval(18 * 60, 20 * 60, 7),
-    referenceInterval(20 * 60, 22 * 60, 4),
+    referenceInterval(16 * 60 + 30, 17 * 60 + 30, 1.5), // früher Abend: dünn
+    referenceInterval(17 * 60 + 30, 20 * 60 + 30, 9), // Abend: Spitze
+    referenceInterval(20 * 60 + 30, 22 * 60, 2), // Schließung: dünn
   ],
   SERVICE: [
-    referenceInterval(10 * 60 + 30, 12 * 60, 1.5),
+    referenceInterval(10 * 60 + 30, 11 * 60 + 30, 0.5),
+    referenceInterval(11 * 60 + 30, 12 * 60, 1),
     referenceInterval(12 * 60, 14 * 60, 4),
     referenceInterval(14 * 60, 15 * 60, 1),
-    referenceInterval(16 * 60 + 30, 18 * 60, 3),
-    referenceInterval(18 * 60, 20 * 60, 4),
-    referenceInterval(20 * 60, 22 * 60, 2),
+    referenceInterval(16 * 60 + 30, 17 * 60 + 30, 1),
+    referenceInterval(17 * 60 + 30, 20 * 60 + 30, 5.5),
+    referenceInterval(20 * 60 + 30, 22 * 60, 1),
   ],
 };
 
+// Freitag: tagsüber dünn, am dichtesten 17:30–21:00. Ein Block 10:30–22:00.
 const FRIDAY: ReferenceProfile = {
   KITCHEN: [
-    referenceInterval(10 * 60 + 30, 12 * 60, 3),
-    referenceInterval(12 * 60, 21 * 60, 25),
-    referenceInterval(21 * 60, 22 * 60, 3),
-  ],
-  SERVICE: [
-    referenceInterval(10 * 60 + 30, 12 * 60, 1.5),
-    referenceInterval(12 * 60, 15 * 60, 6),
-    referenceInterval(15 * 60, 18 * 60, 3),
-    referenceInterval(18 * 60, 21 * 60, 6),
-    referenceInterval(21 * 60, 22 * 60, 1),
-  ],
-};
-
-const WEEKEND: ReferenceProfile = {
-  KITCHEN: [
-    referenceInterval(11 * 60 + 30, 12 * 60, 1),
-    referenceInterval(12 * 60, 21 * 60, 25),
+    referenceInterval(10 * 60 + 30, 11 * 60 + 30, 1),
+    referenceInterval(11 * 60 + 30, 14 * 60, 5),
+    referenceInterval(14 * 60, 17 * 60 + 30, 3),
+    referenceInterval(17 * 60 + 30, 21 * 60, 13), // Spitze
     referenceInterval(21 * 60, 22 * 60, 2),
   ],
   SERVICE: [
-    referenceInterval(10 * 60 + 30, 12 * 60, 1.5),
-    referenceInterval(12 * 60, 15 * 60, 6),
-    referenceInterval(15 * 60, 18 * 60, 3),
-    referenceInterval(18 * 60, 21 * 60, 6),
+    referenceInterval(10 * 60 + 30, 11 * 60 + 30, 0.5),
+    referenceInterval(11 * 60 + 30, 14 * 60, 3),
+    referenceInterval(14 * 60, 17 * 60 + 30, 2),
+    referenceInterval(17 * 60 + 30, 21 * 60, 7.5),
     referenceInterval(21 * 60, 22 * 60, 1),
+  ],
+};
+
+// Sa/So: 11:30–12:00 dünn, 12:00–15:00 dicht, 17:30–20:00 dicht, gegen 22:00
+// wieder dünn. Ein Block 11:30–22:00 (Personal ab 11:30).
+const WEEKEND: ReferenceProfile = {
+  KITCHEN: [
+    referenceInterval(11 * 60 + 30, 12 * 60, 1),
+    referenceInterval(12 * 60, 15 * 60, 10), // Mittag: dicht
+    referenceInterval(15 * 60, 17 * 60 + 30, 3),
+    referenceInterval(17 * 60 + 30, 20 * 60, 9), // Abend: dicht
+    referenceInterval(20 * 60, 21 * 60, 2),
+    referenceInterval(21 * 60, 22 * 60, 1), // Schließung: dünn
+  ],
+  SERVICE: [
+    referenceInterval(11 * 60 + 30, 12 * 60, 0.5),
+    referenceInterval(12 * 60, 15 * 60, 6),
+    referenceInterval(15 * 60, 17 * 60 + 30, 2),
+    referenceInterval(17 * 60 + 30, 20 * 60, 6),
+    referenceInterval(20 * 60, 21 * 60, 1),
+    referenceInterval(21 * 60, 22 * 60, 0.5),
   ],
 };
 

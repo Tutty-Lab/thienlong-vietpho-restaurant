@@ -21,6 +21,7 @@ import {
   AZUBI_WEEKLY_TARGET_FLEX_HOURS,
   type Employee,
   type Shift,
+  type WorkRole,
 } from "../types";
 import { isEmployeeFixedDayOff } from "./fixedDaysOff";
 import {
@@ -31,7 +32,12 @@ import {
   weekdayKeyOf,
   type WeekdayKey,
 } from "./demand";
-import { buildSplitShift, getShiftTemplateForBlocks, type TemplateType } from "./shifts";
+import {
+  buildSplitShift,
+  getShiftTemplateForBlocks,
+  MIN_SPLIT_SEGMENT_MINUTES,
+  type TemplateType,
+} from "./shifts";
 import { consecutiveRunLengthWith, seededRandom } from "./consecutive";
 import { calculatePause, presenceFromPaid } from "./time";
 import {
@@ -678,8 +684,8 @@ function thienlongCandidates(
     const eveningPeak = peaks[1];
     const lunchCap = lunch.endMinutes - lunch.startMinutes;
     const eveningCap = evening.endMinutes - evening.startMinutes;
-    const minimumLunch = Math.max(60, paidMinutes - eveningCap);
-    const maximumLunch = Math.min(lunchCap, paidMinutes - 60);
+    const minimumLunch = Math.max(MIN_SPLIT_SEGMENT_MINUTES, paidMinutes - eveningCap);
+    const maximumLunch = Math.min(lunchCap, paidMinutes - MIN_SPLIT_SEGMENT_MINUTES);
 
     for (let lunchMinutes = minimumLunch; lunchMinutes <= maximumLunch; lunchMinutes += 30) {
       const eveningMinutes = paidMinutes - lunchMinutes;
@@ -1021,6 +1027,55 @@ function matchesEmployeeDayRules(
  * Platziert genau eine Schicht für einen Mitarbeiter: bestes Datum wählen,
  * Schichtlänge an das Tagesfenster anpassen. Gibt true zurück, wenn platziert.
  */
+/**
+ * Obergrenze der Arbeitstage je Woche, wenn der Mitarbeiter „Số ngày làm/tuần"
+ * gesetzt hat. Passt das Monats-Soll nicht mit N Tagen (bei bis zu 10 h/Tag),
+ * wird um genau einen Tag gelockert (N+1). Reicht auch das nicht, entfällt die
+ * Grenze, damit das Soll überhaupt erfüllbar bleibt. Ohne Einstellung: kein
+ * Limit (Infinity) – das bisherige Verhalten bleibt unverändert.
+ */
+type WeeklyDayPlan = {
+  /** Obergrenze Arbeitstage je Woche (Infinity = keine Einstellung). */
+  cap: number;
+  /** Angepeilte Schichtlänge in Minuten, damit sich das Soll gleichmäßig auf
+   *  cap Tage/Woche verteilt (Infinity = kein Limit). */
+  preferredMinutes: number;
+};
+
+function desiredWeeklyDayPlan(state: SchedulerState, employee: Employee): WeeklyDayPlan {
+  const none: WeeklyDayPlan = {
+    cap: Number.POSITIVE_INFINITY,
+    preferredMinutes: Number.POSITIVE_INFINITY,
+  };
+  const n = employee.desiredDaysPerWeek;
+  if (!n || n <= 0 || employee.fixedStoreWeekPattern) return none;
+
+  const weekKeys = new Set<string>();
+  for (const isoDate of state.dates) {
+    const day = state.dayOf(isoDate);
+    if (day.closed || maxPaidForDay(day) === 0) continue;
+    if (!matchesEmployeeDayRules(state, employee, isoDate)) continue;
+    weekKeys.add(weekKeyOf(isoDate));
+  }
+  const numWeeks = Math.max(1, weekKeys.size);
+  const weeklyNeed = employee.targetMinutes / numWeeks;
+  const maxDay = state.isVietpho ? 8 * 60 : MAX_DAILY_MINUTES;
+
+  // ±1 Tag Toleranz: N Tage, wenn das Soll passt; sonst N+1; sonst kein Limit.
+  let cap = n;
+  if (weeklyNeed > n * maxDay) cap = weeklyNeed <= (n + 1) * maxDay ? n + 1 : Number.POSITIVE_INFINITY;
+  if (!Number.isFinite(cap)) return none;
+
+  // Gleichmäßige Schichtlänge, damit wirklich cap Tage/Woche gefüllt werden statt
+  // wenige lange Tage. Untergrenze = kürzeste für die Anstellungsart erlaubte
+  // Schicht; Obergrenze = Tagesdeckel.
+  const profile = state.isVietpho ? "vietpho" : state.isThienlong ? "thienlong" : "default";
+  const minShift = Math.min(...allowedHoursFor(employee.employmentType, profile)) * 60;
+  const even = weeklyNeed / cap;
+  const preferredMinutes = Math.max(minShift, Math.min(maxDay, even));
+  return { cap, preferredMinutes };
+}
+
 function placeOneShift(state: SchedulerState, employee: Employee): boolean {
   const remaining = state.remaining.get(employee.id)!;
   if (remaining <= 0) return false;
@@ -1030,10 +1085,24 @@ function placeOneShift(state: SchedulerState, employee: Employee): boolean {
   const weekCap = weeklyCapMinutes(employee);
   const weekUsed = state.weekMinutes.get(employee.id)!;
 
+  // „Số ngày làm/tuần": bereits belegte Tage je Woche zählen, damit die Grenze
+  // greifen kann. Ohne Einstellung ist der Cap Infinity und ändert nichts.
+  const { cap: dayCapPerWeek, preferredMinutes: preferredDayMinutes } =
+    desiredWeeklyDayPlan(state, employee);
+  const weekDayCount = new Map<string, number>();
+  if (Number.isFinite(dayCapPerWeek)) {
+    for (const iso of worked) {
+      const k = weekKeyOf(iso);
+      weekDayCount.set(k, (weekDayCount.get(k) ?? 0) + 1);
+    }
+  }
+  const weekAtDayCap = (weekKey: string): boolean =>
+    Number.isFinite(dayCapPerWeek) && (weekDayCount.get(weekKey) ?? 0) >= dayCapPerWeek;
+
   // Erst zählen, wie viele Tage überhaupt noch in Frage kommen. Daraus ergibt
   // sich das nötige Tempo (Stunden je verbleibendem Tag) – ohne das würde die
   // zufällige Längenwahl das Monats-Soll reißen.
-  let daysLeft = 0;
+  const eligibleByWeek = new Map<string, number>();
   for (const isoDate of state.dates) {
     if (worked.has(isoDate)) continue;
     if (!matchesEmployeeDayRules(state, employee, isoDate)) continue;
@@ -1043,7 +1112,16 @@ function placeOneShift(state: SchedulerState, employee: Employee): boolean {
     if (consecutiveRunLengthWith(worked, isoDate) > 6) continue;
     const weekKey = weekKeyOf(isoDate);
     if (weekCap !== null && (weekUsed.get(weekKey) ?? 0) >= weekCap) continue;
-    daysLeft += 1;
+    eligibleByWeek.set(weekKey, (eligibleByWeek.get(weekKey) ?? 0) + 1);
+  }
+  // Je Woche höchstens so viele Tage zählen, wie der Tages-Cap noch zulässt –
+  // sonst wählt die Längenwahl zu kurze Schichten für zu viele Tage.
+  let daysLeft = 0;
+  for (const [weekKey, count] of eligibleByWeek) {
+    const slots = Number.isFinite(dayCapPerWeek)
+      ? Math.max(0, dayCapPerWeek - (weekDayCount.get(weekKey) ?? 0))
+      : count;
+    daysLeft += Math.min(count, slots);
   }
   // daysLeft ist eine Obergrenze: greedy belegt nie wirklich JEDEN erlaubten
   // Tag, weil die 6-Tage-Regel Lücken erzwingt. Ohne Sicherheitsabschlag wählt
@@ -1061,6 +1139,7 @@ function placeOneShift(state: SchedulerState, employee: Employee): boolean {
     const day = state.dayOf(isoDate);
     if (day.closed) continue; // Betriebsruhe -> kein Dienst
     const weekKey = weekKeyOf(isoDate);
+    if (weekAtDayCap(weekKey)) continue; // gewünschte Tage/Woche erreicht
     const ds = state.dateState.get(isoDate)!;
     const staffingProfile = state.isThienlong
       ? thienlongStaffingProfile(
@@ -1077,6 +1156,11 @@ function placeOneShift(state: SchedulerState, employee: Employee): boolean {
       const free = weekCap - (weekUsed.get(weekKey) ?? 0);
       if (free <= 0) continue; // Woche ist voll
       dayCapMinutes = Math.min(dayCapMinutes, free);
+    }
+    // „Số ngày làm/tuần": Schichtlänge auf die gleichmäßige Zielgröße deckeln,
+    // damit wirklich N Tage/Woche gefüllt werden statt weniger langer Tage.
+    if (Number.isFinite(preferredDayMinutes)) {
+      dayCapMinutes = Math.min(dayCapMinutes, preferredDayMinutes);
     }
 
     // Längste Schicht, die ins Fenster passt UND den Rest exakt aufteilbar lässt.
@@ -1552,6 +1636,65 @@ function balanceShiftTypes(state: SchedulerState): void {
   }
 }
 
+/**
+ * Harte Rollen-Abdeckung (Thienlong): An jedem offenen Tag muss JEDE Rolle
+ * (Bếp/Bồi) sowohl die Öffnung als auch den Ladenschluss abdecken – sonst steht
+ * z.B. bei Öffnung kein Koch oder zum Schluss kein Service da. Es werden nur
+ * Anfangs-/Endzeiten umgelegt (Früh-/Spätanker), die bezahlten Minuten und das
+ * Datum bleiben gleich, damit die Monats-Sollzahlen exakt erhalten bleiben.
+ *
+ * Läuft als LETZTER Schritt, hat also Vorrang vor der Quotenverteilung. Wo eine
+ * Rolle an einem Tag nur eine (zu kurze) Schicht hat, lässt sich nicht beides
+ * erzwingen – dann wird best­möglich die Öffnung gesichert.
+ */
+function repairRoleCoverage(state: SchedulerState): void {
+  if (!state.isThienlong) return;
+  const roleOf = (shift: Shift): WorkRole | undefined =>
+    state.employeesById.get(shift.employeeId)?.workRole;
+  const segmentsOf = (shift: Shift) =>
+    shift.segments ?? [{ startMinutes: shift.startMinutes, endMinutes: shift.endMinutes }];
+
+  for (const date of state.dates) {
+    const day = state.dayOf(date);
+    if (day.closed) continue;
+    const openMinutes = day.blocks[0].startMinutes;
+    const closeMinutes = day.blocks[day.blocks.length - 1].endMinutes;
+    const coversOpen = (shift: Shift) =>
+      segmentsOf(shift).some((seg) => seg.startMinutes <= openMinutes);
+    const coversClose = (shift: Shift) =>
+      segmentsOf(shift).some((seg) => seg.endMinutes >= closeMinutes);
+
+    const longest = (list: Shift[]): Shift =>
+      list.reduce((best, s) => (s.paidMinutes > best.paidMinutes ? s : best));
+
+    for (const role of ["KITCHEN", "SERVICE"] as const) {
+      const roleShifts = () => state.shifts.filter((s) => s.date === date && roleOf(s) === role);
+
+      // Nur wenn die Rolle an dem Tag mindestens zwei Schichten hat, lassen sich
+      // Öffnung UND Schluss belegen. Bei nur einer Schicht ist beides unmöglich –
+      // dann bleibt die nachfrageoptimale (auf die Spitzen gelegte) Platzierung.
+      let shifts = roleShifts();
+      if (shifts.length < 2) continue;
+
+      // 1) Öffnung sichern: die längste Rollenschicht als Frühanker legen. Lange
+      //    Schichten decken über den geteilten Dienst die Öffnung verlässlich ab
+      //    (Mittagsstück ab Ladenöffnung).
+      if (!shifts.some(coversOpen)) {
+        retypeShift(state, longest(shifts), "EARLY");
+      }
+
+      // 2) Ladenschluss sichern: die längste Rollenschicht als Spätanker legen,
+      //    ohne die (evtl. einzige) Öffnungsschicht wieder zu opfern.
+      shifts = roleShifts();
+      if (!shifts.some(coversClose)) {
+        const openers = shifts.filter(coversOpen);
+        const pool = shifts.filter((s) => !(coversOpen(s) && openers.length <= 1));
+        if (pool.length > 0) retypeShift(state, longest(pool), "LATE");
+      }
+    }
+  }
+}
+
 /** Fallback only for genuinely impossible inputs; no speculative monthly cap. */
 function buildUnmetMessage(
   state: SchedulerState,
@@ -1759,6 +1902,8 @@ export function generateSchedule(input: GenerateInput): Shift[] {
   }
   if (state.isVietpho) balanceVietphoPeaks(state);
   else balanceShiftTypes(state);
+  // Harte Regel zuletzt: jede Rolle deckt Öffnung UND Schluss ab.
+  repairRoleCoverage(state);
 
   // Stabil sortieren: nach Datum, dann Startzeit, dann Mitarbeiter.
   state.shifts.sort(

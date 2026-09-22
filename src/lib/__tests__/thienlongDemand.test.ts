@@ -40,7 +40,7 @@ describe("Thienlong role demand profile", () => {
     );
 
     expect(kitchenAt40Hours).toBeCloseTo(kitchenAt20Hours * 2);
-    expect(kitchenAt20Hours).toBeCloseTo(20 * 60 * (26 / 41.5));
+    expect(kitchenAt20Hours).toBeCloseTo(20 * 60 * (24 / 38));
     const serviceAt20Hours = total(
       thienlongDemandIntervals("monday", "SERVICE", 20 * 60),
     );
@@ -48,22 +48,23 @@ describe("Thienlong role demand profile", () => {
   });
 
   it("converts the actual example schedule into ratios instead of fixed hours", () => {
-    expect(thienlongRoleShare("monday", "KITCHEN")).toBeCloseTo(26 / 41.5);
-    expect(thienlongRoleShare("monday", "SERVICE")).toBeCloseTo(15.5 / 41.5);
-    expect(thienlongRoleShare("saturday", "KITCHEN")).toBeCloseTo(28 / 45.5);
-    expect(thienlongRoleShare("sunday", "KITCHEN")).toBeCloseTo(28 / 45.5);
+    expect(thienlongRoleShare("monday", "KITCHEN")).toBeCloseTo(24 / 38);
+    expect(thienlongRoleShare("monday", "SERVICE")).toBeCloseTo(14 / 38);
+    expect(thienlongRoleShare("saturday", "KITCHEN")).toBeCloseTo(26 / 42);
+    expect(thienlongRoleShare("sunday", "KITCHEN")).toBeCloseTo(26 / 42);
     expect(
       thienlongRoleShare("monday", "KITCHEN") +
         thienlongRoleShare("monday", "SERVICE"),
     ).toBeCloseTo(1);
 
     expect(thienlongDemandShares("monday", "KITCHEN")).toEqual([
-      { startMinutes: 10 * 60 + 30, endMinutes: 12 * 60, share: 3 / 41.5 },
-      { startMinutes: 12 * 60, endMinutes: 14 * 60, share: 7 / 41.5 },
-      { startMinutes: 14 * 60, endMinutes: 15 * 60, share: 2 / 41.5 },
-      { startMinutes: 16 * 60 + 30, endMinutes: 18 * 60, share: 3 / 41.5 },
-      { startMinutes: 18 * 60, endMinutes: 20 * 60, share: 7 / 41.5 },
-      { startMinutes: 20 * 60, endMinutes: 22 * 60, share: 4 / 41.5 },
+      { startMinutes: 10 * 60 + 30, endMinutes: 11 * 60 + 30, share: 1 / 38 },
+      { startMinutes: 11 * 60 + 30, endMinutes: 12 * 60, share: 1.5 / 38 },
+      { startMinutes: 12 * 60, endMinutes: 14 * 60, share: 7 / 38 },
+      { startMinutes: 14 * 60, endMinutes: 15 * 60, share: 2 / 38 },
+      { startMinutes: 16 * 60 + 30, endMinutes: 17 * 60 + 30, share: 1.5 / 38 },
+      { startMinutes: 17 * 60 + 30, endMinutes: 20 * 60 + 30, share: 9 / 38 },
+      { startMinutes: 20 * 60 + 30, endMinutes: 22 * 60, share: 2 / 38 },
     ]);
   });
 
@@ -99,7 +100,7 @@ describe("Thienlong role demand profile", () => {
   });
 
   it("prefers the shift that fills the currently uncovered role intervals", () => {
-    const demand = thienlongDemandIntervals("monday", "SERVICE", 41.5 * 60);
+    const demand = thienlongDemandIntervals("monday", "SERVICE", 38 * 60);
     const early = shift("early", 10 * 60 + 30, 15 * 60);
     const late = shift("late", 16 * 60 + 30, 22 * 60);
 
@@ -119,7 +120,7 @@ describe("Thienlong role demand profile", () => {
 
   it("clips demand outside the configured work window without changing its density", () => {
     const clipped = clipDemandIntervals(
-      thienlongDemandIntervals("saturday", "SERVICE", 45.5 * 60),
+      thienlongDemandIntervals("saturday", "SERVICE", 42 * 60),
       [{ startMinutes: 11 * 60 + 30, endMinutes: 22 * 60 }],
     );
 
@@ -128,6 +129,6 @@ describe("Thienlong role demand profile", () => {
       endMinutes: 12 * 60,
       personMinutes: 30,
     });
-    expect(clipped.reduce((total, demand) => total + demand.personMinutes, 0)).toBe(16.5 * 60);
+    expect(clipped.reduce((total, demand) => total + demand.personMinutes, 0)).toBe(16 * 60);
   });
 });

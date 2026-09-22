@@ -58,6 +58,7 @@ type Draft = {
   employmentType: EmploymentType;
   workRole: WorkRole | "";
   hours: string;
+  daysPerWeek: string;
   fixedStoreWeekPattern: boolean;
   saved: boolean;
   fixedDaysOff: WeekdayName[];
@@ -70,6 +71,7 @@ function draftFrom(emp?: Employee): Draft {
     employmentType: emp?.employmentType ?? "VOLLZEIT",
     workRole: emp?.workRole ?? "",
     hours: emp ? String(emp.targetMinutes / 60) : "176",
+    daysPerWeek: emp?.desiredDaysPerWeek ? String(emp.desiredDaysPerWeek) : "",
     fixedStoreWeekPattern: emp?.fixedStoreWeekPattern === true,
     saved: emp?.saved === true,
     fixedDaysOff: emp?.fixedDaysOff ?? [],
@@ -92,7 +94,18 @@ function draftToEmployee(d: Draft): Omit<Employee, "id"> {
     saved: d.saved || undefined,
     // Teilzeit hat keine festen Ruhetage; Vollzeit/Azubi schon.
     fixedDaysOff: d.employmentType === "TEILZEIT" ? undefined : d.fixedDaysOff,
+    // Gewünschte Arbeitstage/Woche: nur 1..7, sonst nicht gesetzt.
+    desiredDaysPerWeek: desiredDaysFromDraft(d),
   };
+}
+
+/** Liest die gewünschten Arbeitstage/Woche aus dem Formular (1..7 oder undefined). */
+function desiredDaysFromDraft(d: Draft): number | undefined {
+  // Der feste Zwei-Filialen-Rhythmus legt die Tage bereits fest.
+  if (d.fixedStoreWeekPattern) return undefined;
+  const n = Math.round(Number(d.daysPerWeek));
+  if (!Number.isFinite(n) || n < 1) return undefined;
+  return Math.min(7, n);
 }
 
 export function EmployeesTab({ store }: { store: UseScheduleReturn }) {
@@ -246,6 +259,9 @@ function EmployeeSummaryRow({
             {!daysOffOk && ` (cần ${requiredDaysOff})`}
           </span>
         )}
+        {emp.desiredDaysPerWeek ? (
+          <span className="text-slate-400">· {emp.desiredDaysPerWeek} ngày/tuần</span>
+        ) : null}
       </div>
     </div>
   );
@@ -413,6 +429,28 @@ function EmployeeSheet({
                 {tooMany && (
                   <span className="text-amber-600 font-medium"> · ⚠ &gt;{WARN_HOURS}h/tháng</span>
                 )}
+              </span>
+            </label>
+          )}
+
+          {/* Số ngày làm mong muốn / tuần */}
+          {!d.fixedStoreWeekPattern && (
+            <label className="block">
+              <span className="text-xs text-slate-600">Số ngày làm / tuần (tùy chọn)</span>
+              <input
+                type="number"
+                inputMode="numeric"
+                min={1}
+                max={7}
+                step={1}
+                placeholder="Tự động theo nhu cầu"
+                className={`${inputClass} w-full mt-1`}
+                value={d.daysPerWeek}
+                onChange={(e) => set("daysPerWeek", e.target.value)}
+              />
+              <span className="mt-1 block text-xs text-slate-500">
+                Bỏ trống = tự động. Nếu đặt, lịch ưu tiên chia đều số giờ vào đúng số ngày này mỗi
+                tuần (có thể lệch ±1 ngày để độ dài ca hợp lý).
               </span>
             </label>
           )}

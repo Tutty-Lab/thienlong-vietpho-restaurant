@@ -105,6 +105,11 @@ export function getShiftTemplateForBlocks(
  *  handgeschriebenen Plänen: fast immer 12:00–15:00). */
 const PREFERRED_LUNCH_MINUTES = 3 * 60;
 
+/** Mindestlänge je Stück eines geteilten Dienstes. Kürzere Stücke (1–2 h) wirken
+ *  im Plan unsinnig; passt ein Stück nicht auf mind. 3 h, wird lieber
+ *  durchgehend geplant. */
+export const MIN_SPLIT_SEGMENT_MINUTES = 3 * 60;
+
 export type SplitPlan = {
   segments: { startMinutes: number; endMinutes: number }[];
   paidMinutes: number;
@@ -139,8 +144,8 @@ export function buildSplitShift(
   if (paidMinutes - lunchPart > eveningCap) lunchPart = paidMinutes - eveningCap;
   const eveningPart = paidMinutes - lunchPart;
 
-  // Beide Stücke müssen sinnvoll lang sein, sonst lieber durchgehend planen.
-  if (lunchPart < 60 || eveningPart < 60) return null;
+  // Beide Stücke müssen sinnvoll lang sein (mind. 3 h), sonst lieber durchgehend.
+  if (lunchPart < MIN_SPLIT_SEGMENT_MINUTES || eveningPart < MIN_SPLIT_SEGMENT_MINUTES) return null;
   if (lunchPart > lunchCap || eveningPart > eveningCap) return null;
 
   // An early split shift must actually open the restaurant. A late split shift

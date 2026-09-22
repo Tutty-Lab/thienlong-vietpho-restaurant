@@ -76,6 +76,14 @@ export type Employee = {
   /** Feste Ruhetage der jeweiligen Filiale; dort darf keine Schicht liegen. */
   fixedDaysOff?: WeekdayName[];
   /**
+   * Gewünschte Arbeitstage pro Woche (1..7). Ist der Wert gesetzt, verteilt der
+   * Planer die Monatsstunden möglichst genau auf so viele Tage je Woche. Passt
+   * das Soll nicht sauber auf N Tage, darf um einen Tag abgewichen werden
+   * (±1), damit die Schichtlängen sinnvoll bleiben. Fehlt der Wert, entscheidet
+   * wie bisher die Nachfrage über die Tageszahl.
+   */
+  desiredDaysPerWeek?: number;
+  /**
    * Häkchen „Lưu" in der Mitarbeiterliste: vom Nutzer gesetzte Bestätigung,
    * dass die Daten dieser Person geprüft und übernommen sind. Rein als Merker
    * gedacht – auf die Planung hat das Feld keinen Einfluss.
