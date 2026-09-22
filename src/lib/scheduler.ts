@@ -999,25 +999,42 @@ function matchesEmployeeDayRules(
 type WeeklyDayPlan = {
   /** Obergrenze Arbeitstage je Woche (Infinity = keine Einstellung). */
   cap: number;
-  /** Angepeilte Schichtlänge in Minuten, damit sich das Soll gleichmäßig auf
-   *  cap Tage/Woche verteilt (Infinity = kein Limit). */
-  preferredMinutes: number;
+  /** Basis-Schichtlänge (Minuten) = Wochen-Soll / cap. Infinity = keine Grenze. */
+  baseMinutes: number;
+  /** Durchschnittliches Nachfrage-Gewicht der planbaren Tage dieses MA. */
+  avgWeight: number;
+  /** Kürzeste erlaubte Schicht (Minuten) für die Anstellungsart. */
+  minShift: number;
+  /** Tages-Obergrenze (Minuten). */
+  maxDay: number;
 };
+
+function planWeightOf(state: SchedulerState, isoDate: string): number {
+  if (!state.isThienlong) return 1;
+  return thienlongDemandWeight(weekdayKeyOf(parseIsoDate(isoDate)), state.holidays.has(isoDate));
+}
 
 function desiredWeeklyDayPlan(state: SchedulerState, employee: Employee): WeeklyDayPlan {
   const none: WeeklyDayPlan = {
     cap: Number.POSITIVE_INFINITY,
-    preferredMinutes: Number.POSITIVE_INFINITY,
+    baseMinutes: Number.POSITIVE_INFINITY,
+    avgWeight: 1,
+    minShift: 0,
+    maxDay: Number.POSITIVE_INFINITY,
   };
   const n = employee.desiredDaysPerWeek;
   if (!n || n <= 0 || employee.fixedStoreWeekPattern) return none;
 
   const weekKeys = new Set<string>();
+  let weightSum = 0;
+  let dayCount = 0;
   for (const isoDate of state.dates) {
     const day = state.dayOf(isoDate);
     if (day.closed || maxPaidForDay(day) === 0) continue;
     if (!matchesEmployeeDayRules(state, employee, isoDate)) continue;
     weekKeys.add(weekKeyOf(isoDate));
+    weightSum += planWeightOf(state, isoDate);
+    dayCount += 1;
   }
   const numWeeks = Math.max(1, weekKeys.size);
   const weeklyNeed = employee.targetMinutes / numWeeks;
@@ -1028,14 +1045,29 @@ function desiredWeeklyDayPlan(state: SchedulerState, employee: Employee): Weekly
   if (weeklyNeed > n * maxDay) cap = weeklyNeed <= (n + 1) * maxDay ? n + 1 : Number.POSITIVE_INFINITY;
   if (!Number.isFinite(cap)) return none;
 
-  // Gleichmäßige Schichtlänge, damit wirklich cap Tage/Woche gefüllt werden statt
-  // wenige lange Tage. Untergrenze = kürzeste für die Anstellungsart erlaubte
-  // Schicht; Obergrenze = Tagesdeckel.
   const profile = state.isVietpho ? "vietpho" : state.isThienlong ? "thienlong" : "default";
   const minShift = Math.min(...allowedHoursFor(employee.employmentType, profile)) * 60;
-  const even = weeklyNeed / cap;
-  const preferredMinutes = Math.max(minShift, Math.min(maxDay, even));
-  return { cap, preferredMinutes };
+  const avgWeight = dayCount > 0 ? weightSum / dayCount : 1;
+  // baseMinutes = gleichmäßige Länge über cap Tage. In placeOneShift wird sie je
+  // Tag mit (Tages-Gewicht / Durchschnitts-Gewicht) skaliert: so werden zwar cap
+  // Tage/Woche gefüllt, die Wochenendschichten aber länger als die Wochentags-
+  // schichten – die Nachfrage-Gewichtung bleibt erhalten.
+  return { cap, baseMinutes: weeklyNeed / cap, avgWeight, minShift, maxDay };
+}
+
+/**
+ * Wie stark die Schichtlänge dem Tages-Gewicht folgt. >1 verstärkt die Spitze:
+ * Wochenendschichten werden noch länger, Wochentagsschichten noch kürzer –
+ * damit die Wochenenden trotz „N Tage/Woche" deutlich stärker besetzt sind.
+ */
+const DAY_WEIGHT_SKEW = 3;
+
+/** Nachfrage-gewichtete Ziel-Schichtlänge für einen Tag (bei „Số ngày làm/tuần"). */
+function preferredMinutesForDay(plan: WeeklyDayPlan, state: SchedulerState, isoDate: string): number {
+  if (!Number.isFinite(plan.baseMinutes)) return Number.POSITIVE_INFINITY;
+  const ratio = planWeightOf(state, isoDate) / plan.avgWeight;
+  const scaled = plan.baseMinutes * Math.pow(ratio, DAY_WEIGHT_SKEW);
+  return Math.max(plan.minShift, Math.min(plan.maxDay, scaled));
 }
 
 function placeOneShift(state: SchedulerState, employee: Employee): boolean {
@@ -1049,8 +1081,8 @@ function placeOneShift(state: SchedulerState, employee: Employee): boolean {
 
   // „Số ngày làm/tuần": bereits belegte Tage je Woche zählen, damit die Grenze
   // greifen kann. Ohne Einstellung ist der Cap Infinity und ändert nichts.
-  const { cap: dayCapPerWeek, preferredMinutes: preferredDayMinutes } =
-    desiredWeeklyDayPlan(state, employee);
+  const dayPlan = desiredWeeklyDayPlan(state, employee);
+  const dayCapPerWeek = dayPlan.cap;
   const weekDayCount = new Map<string, number>();
   if (Number.isFinite(dayCapPerWeek)) {
     for (const iso of worked) {
@@ -1119,10 +1151,11 @@ function placeOneShift(state: SchedulerState, employee: Employee): boolean {
       if (free <= 0) continue; // Woche ist voll
       dayCapMinutes = Math.min(dayCapMinutes, free);
     }
-    // „Số ngày làm/tuần": Schichtlänge auf die gleichmäßige Zielgröße deckeln,
-    // damit wirklich N Tage/Woche gefüllt werden statt weniger langer Tage.
-    if (Number.isFinite(preferredDayMinutes)) {
-      dayCapMinutes = Math.min(dayCapMinutes, preferredDayMinutes);
+    // „Số ngày làm/tuần": Schichtlänge auf die nachfrage-gewichtete Zielgröße
+    // deckeln – Wochentage kürzer (damit N Tage gefüllt werden), Wochenenden
+    // länger (damit die Spitze erhalten bleibt).
+    if (Number.isFinite(dayCapPerWeek)) {
+      dayCapMinutes = Math.min(dayCapMinutes, preferredMinutesForDay(dayPlan, state, isoDate));
     }
 
     // Längste Schicht, die ins Fenster passt UND den Rest exakt aufteilbar lässt.
