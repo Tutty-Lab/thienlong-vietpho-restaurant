@@ -205,18 +205,24 @@ export function thienlongDemandWeight(weekday: WeekdayKey, isHoliday = false): n
   return 1;
 }
 
-/** Staffing bands for the current Thienlong workforce shape. */
+/**
+ * Personal-Bandbreite je Tag: nur noch relative KÖPFE-Grenzen zum Verteilen der
+ * Besuche (Wochenende darf mehr Leute haben als ein ruhiger Wochentag). Es gibt
+ * KEINE fest verdrahtete Stundenzahl mehr (früher 55–60 h Mo–Do) – die Stunden
+ * ergeben sich rein proportional aus den Nachfrage-Gewichten und dem Team.
+ */
 export function thienlongStaffingProfile(
   weekday: WeekdayKey,
   isHoliday = false,
 ): ThienlongStaffingProfile {
+  const band = { minHours: 0, maxHours: Number.POSITIVE_INFINITY };
   if (isHoliday || weekday === "friday" || weekday === "saturday") {
-    return { minStaff: 7, maxStaff: 8, minHours: 0, maxHours: Number.POSITIVE_INFINITY };
+    return { minStaff: 7, maxStaff: 8, ...band };
   }
   if (weekday === "sunday") {
-    return { minStaff: 6, maxStaff: 8, minHours: 0, maxHours: Number.POSITIVE_INFINITY };
+    return { minStaff: 6, maxStaff: 8, ...band };
   }
-  return { minStaff: 6, maxStaff: 7, minHours: 55, maxHours: 60 };
+  return { minStaff: 6, maxStaff: 7, ...band };
 }
 
 export function thienlongLateShiftRatio(weekday: WeekdayKey, isHoliday = false): number {

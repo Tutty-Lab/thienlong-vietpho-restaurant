@@ -300,9 +300,11 @@ export function DocsTab({ storeId }: { storeId: string }) {
         </p>
         {isThienlong && (
           <p className="text-slate-600">
-            Với quy mô nhân sự hiện tại, Thứ 2–Thứ 5 được ưu tiên khoảng <b>6–7 người</b>; mốc
-            <b> 55–60 giờ/ngày</b> chỉ áp dụng khi tổng giờ tháng vẫn đủ giữ đúng các tỷ lệ phía trên. Thứ 6–Thứ 7–Chủ Nhật có trần cứng
-            <b> 8 người/ngày</b>; thuật toán không thay đổi định mức hay thông tin đã lưu của nhân viên.
+            Giờ mỗi ngày được chia <b>thuần theo tỉ lệ</b> ở trên (không còn mốc giờ cố định
+            nào) nên luôn co giãn đúng theo tổng giờ của quán: mỗi ngày Thứ 6/Thứ 7 nặng hơn ngày
+            thường ~35%, Chủ Nhật ~20%. Về số người, Thứ 2–Thứ 5 được ưu tiên khoảng <b>6–7 người</b>,
+            Thứ 6–Thứ 7–Chủ Nhật có trần cứng <b>8 người/ngày</b>; thuật toán không thay đổi định
+            mức hay thông tin đã lưu của nhân viên.
           </p>
         )}
       </Section>

@@ -121,63 +121,25 @@ type SchedulerState = {
 };
 
 /**
- * Thienlong follows the configured weekday ratios first. The 55-60 hour
- * quiet-day band is only activated when the selected monthly targets can
- * support it without flattening the Friday/Saturday/Sunday ratios.
+ * Tages-Soll rein PROPORTIONAL zu den Nachfrage-Gewichten (Mo–Do 1,0;
+ * Fr/Sa 1,35; So 1,2). Dadurch bekommt jeder Wochenendtag mehr Stunden als ein
+ * ruhiger Wochentag – unabhängig von der Teamgröße. Es gibt KEINE fest
+ * verdrahtete Stundenzahl je Tag (früher 55–60 h für Mo–Do); das hatte bei
+ * größeren Teams die Wochenenden künstlich eingeebnet, weil die vielen
+ * Wochentage die Stunden vorab „reserviert" haben.
  */
 function buildThienlongRawTargets(
   dates: readonly string[],
   totalTargetMinutes: number,
   weightOf: (isoDate: string) => number,
-  dayOf: (isoDate: string) => ResolvedDay,
-  holidays: Set<string>,
 ): Map<string, number> {
-  const openDates = dates.filter((date) => !dayOf(date).closed && weightOf(date) > 0);
-  const weightedTotal = openDates.reduce((sum, date) => sum + weightOf(date), 0);
-  const weighted = new Map<string, number>(
+  const weightedTotal = dates.reduce((sum, date) => sum + weightOf(date), 0);
+  return new Map<string, number>(
     dates.map((date) => [
       date,
       weightedTotal > 0 ? (totalTargetMinutes * weightOf(date)) / weightedTotal : 0,
     ]),
   );
-
-  const quietDates = openDates.filter((date) => {
-    const profile = thienlongStaffingProfile(
-      weekdayKeyOf(parseIsoDate(date)),
-      holidays.has(date),
-    );
-    return profile.minHours > 0;
-  });
-  if (quietDates.length === 0) return weighted;
-
-  const quietFloor = 55 * 60;
-  const quietCeiling = 60 * 60;
-  // Retain the proportional model when raising quiet days to the floor would
-  // consume hours intended for the higher-weight Friday/Saturday/Sunday days.
-  if (quietDates.some((date) => (weighted.get(date) ?? 0) < quietFloor)) {
-    return weighted;
-  }
-
-  const busyDates = openDates.filter((date) => !quietDates.includes(date));
-
-  const result = new Map(weighted);
-  const quietMinutes = quietDates.reduce((sum, date) => {
-    const target = Math.min(
-      quietCeiling,
-      Math.max(quietFloor, weighted.get(date) ?? 0),
-    );
-    result.set(date, target);
-    return sum + target;
-  }, 0);
-
-  const remaining = totalTargetMinutes - quietMinutes;
-  if (remaining < 0 || busyDates.length === 0) return weighted;
-
-  const busyWeight = busyDates.reduce((sum, date) => sum + weightOf(date), 0);
-  for (const date of busyDates) {
-    result.set(date, busyWeight > 0 ? (remaining * weightOf(date)) / busyWeight : 0);
-  }
-  return result;
 }
 
 let shiftIdCounter = 0;
@@ -1771,7 +1733,7 @@ export function generateSchedule(input: GenerateInput): Shift[] {
   const totalWeight = dates.reduce((sum, d) => sum + weightOf(d), 0);
 
   const rawTarget = isThienlong
-    ? buildThienlongRawTargets(dates, totalTargetMin, weightOf, dayOf, holidays)
+    ? buildThienlongRawTargets(dates, totalTargetMin, weightOf)
     : new Map<string, number>(
         dates.map((d) => [
           d,
