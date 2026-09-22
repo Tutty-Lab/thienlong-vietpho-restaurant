@@ -58,7 +58,7 @@ describe("desiredDaysPerWeek", () => {
     { id: "vz-d", name: "VZ D", employmentType: "VOLLZEIT", targetMinutes: 176 * 60, workRole: "KITCHEN" },
   ];
 
-  it("keeps a set employee within ±1 of the desired days per full week and meets the target", () => {
+  it("never schedules a set employee above the desired days per full week (+1 tolerance) and meets the target", () => {
     const employees = base.map((e) =>
       e.id === "vz-a" ? { ...e, desiredDaysPerWeek: 4 } : e,
     );
@@ -73,10 +73,11 @@ describe("desiredDaysPerWeek", () => {
       holidayState: "BW",
     });
 
+    // Es ist eine reine Obergrenze: nie mehr als N (+1 Toleranz) Tage je Woche.
+    // Die Schichtlängen bleiben frei, weniger Tage sind also erlaubt.
     const counts = fullWeekDayCounts(shifts, "vz-a", datesOf(year, month));
     expect(counts.length).toBeGreaterThan(0);
     for (const c of counts) {
-      expect(c).toBeGreaterThanOrEqual(3); // N-1
       expect(c).toBeLessThanOrEqual(5); // N+1
     }
 

@@ -449,8 +449,8 @@ function EmployeeSheet({
                 onChange={(e) => set("daysPerWeek", e.target.value)}
               />
               <span className="mt-1 block text-xs text-slate-500">
-                Bỏ trống = tự động. Nếu đặt, lịch ưu tiên chia đều số giờ vào đúng số ngày này mỗi
-                tuần (có thể lệch ±1 ngày để độ dài ca hợp lý).
+                Bỏ trống = tự động. Nếu đặt, người này làm <b>tối đa</b> số ngày này mỗi tuần (có thể
+                thêm 1 ngày khi định mức không đủ chỗ). Độ dài ca vẫn theo nhu cầu — không cào bằng giờ.
               </span>
             </label>
           )}
