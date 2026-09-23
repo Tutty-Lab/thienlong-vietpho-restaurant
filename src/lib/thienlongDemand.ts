@@ -220,7 +220,10 @@ export function thienlongStaffingProfile(
     return { minStaff: 7, maxStaff: 8, ...band };
   }
   if (weekday === "sunday") {
-    return { minStaff: 6, maxStaff: 8, ...band };
+    // Sonntag ist ein starker Tag (Gewicht 1,2). Mit einem Kopf-Untergrenze von
+    // 7 (wie Fr/Sa) zieht die Planung genug Leute auf den Sonntag, damit er
+    // wirklich MEHR Stunden bekommt als ein Wochentag – nicht gleich viel.
+    return { minStaff: 7, maxStaff: 8, ...band };
   }
   return { minStaff: 6, maxStaff: 7, ...band };
 }
