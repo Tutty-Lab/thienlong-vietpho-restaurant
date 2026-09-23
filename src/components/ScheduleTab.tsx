@@ -73,30 +73,56 @@ export function ScheduleTab({ store }: { store: UseScheduleReturn }) {
     [schedule.dateOverrides],
   );
 
-  // Tổng theo ngày cho các dòng chân bảng. Phân loại theo GIỜ THỰC TẾ chứ không
-  // theo shiftType: một ca tách (làm cả trưa lẫn tối) trước đây bị gộp vào "Ca
-  // tối" nên buổi sáng trông trống dù thực tế vẫn có người. Giờ:
-  //   sáng  = chỉ làm buổi trưa/sáng
-  //   tối   = chỉ làm buổi tối
-  //   cả ngày = làm cả hai buổi (ca tách hoặc ca dài xuyên suốt)
+  // Tổng theo ngày cho các dòng chân bảng. Đếm số người CÓ MẶT thực tế ở giờ cao
+  // điểm trưa (13:00) và tối (19:00), tách theo vai trò Bếp/Bồi — để dễ kiểm tra
+  // độ phủ từng buổi (một ca tách vẫn được tính cho cả hai buổi).
+  const LUNCH_MINUTES = 13 * 60;
+  const DINNER_MINUTES = 19 * 60;
+  const roleOf = useMemo(
+    () => new Map(schedule.employees.map((e) => [e.id, e.workRole] as const)),
+    [schedule.employees],
+  );
   const dayStats = useMemo(() => {
-    type DayStat = { count: number; total: number; early: number; late: number; both: number };
+    type DayStat = {
+      count: number;
+      total: number;
+      kitchenLunch: number;
+      serviceLunch: number;
+      kitchenDinner: number;
+      serviceDinner: number;
+    };
     const stats = new Map<string, DayStat>();
-    for (const d of dates) stats.set(d, { count: 0, total: 0, early: 0, late: 0, both: 0 });
+    for (const d of dates) {
+      stats.set(d, {
+        count: 0,
+        total: 0,
+        kitchenLunch: 0,
+        serviceLunch: 0,
+        kitchenDinner: 0,
+        serviceDinner: 0,
+      });
+    }
+    const coversAt = (s: (typeof schedule.shifts)[number], t: number) => {
+      const segments = s.segments ?? [{ startMinutes: s.startMinutes, endMinutes: s.endMinutes }];
+      return segments.some((g) => g.startMinutes <= t && g.endMinutes > t);
+    };
     for (const s of schedule.shifts) {
       const st = stats.get(s.date);
       if (!st) continue;
       st.count += 1;
       st.total += s.paidMinutes;
-      const segments = s.segments ?? [{ startMinutes: s.startMinutes, endMinutes: s.endMinutes }];
-      const worksMidday = segments.some((g) => g.startMinutes < 14 * 60); // có mặt buổi trưa
-      const worksEvening = segments.some((g) => g.endMinutes > 17 * 60); // có mặt buổi tối
-      if (worksMidday && worksEvening) st.both += 1;
-      else if (worksMidday) st.early += 1;
-      else st.late += 1;
+      const role = roleOf.get(s.employeeId);
+      if (coversAt(s, LUNCH_MINUTES)) {
+        if (role === "KITCHEN") st.kitchenLunch += 1;
+        else if (role === "SERVICE") st.serviceLunch += 1;
+      }
+      if (coversAt(s, DINNER_MINUTES)) {
+        if (role === "KITCHEN") st.kitchenDinner += 1;
+        else if (role === "SERVICE") st.serviceDinner += 1;
+      }
     }
     return stats;
-  }, [dates, schedule.shifts]);
+  }, [dates, schedule.shifts, roleOf]);
 
   const hasEmployees = schedule.employees.length > 0;
 
@@ -308,9 +334,10 @@ export function ScheduleTab({ store }: { store: UseScheduleReturn }) {
                 dates={dates}
                 value={(d) => minutesToShortHours(dayStats.get(d)!.total)}
               />
-              <SummaryRow label="Ca sáng" dates={dates} value={(d) => String(dayStats.get(d)!.early)} />
-              <SummaryRow label="Ca tối" dates={dates} value={(d) => String(dayStats.get(d)!.late)} />
-              <SummaryRow label="Cả ngày" dates={dates} value={(d) => String(dayStats.get(d)!.both)} />
+              <SummaryRow label="Bếp trưa" dates={dates} value={(d) => String(dayStats.get(d)!.kitchenLunch)} />
+              <SummaryRow label="Bồi trưa" dates={dates} value={(d) => String(dayStats.get(d)!.serviceLunch)} />
+              <SummaryRow label="Bếp tối" dates={dates} value={(d) => String(dayStats.get(d)!.kitchenDinner)} />
+              <SummaryRow label="Bồi tối" dates={dates} value={(d) => String(dayStats.get(d)!.serviceDinner)} />
             </tfoot>
           </table>
         </div>
