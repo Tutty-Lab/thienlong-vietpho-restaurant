@@ -1092,6 +1092,17 @@ const RIGID_ALLOWED_HOURS: Record<Employee["employmentType"], readonly number[]>
  * nicht aufnehmen kann, geht gleichmäßig auf die übrigen Tage – statt sich am
  * Monatsende auf einem Tag zu stauen.
  */
+/**
+ * Wochendecke für feste Azubis inkl. der erlaubten Reserve
+ * (AZUBI_WEEKLY_TARGET_FLEX_HOURS, von der Validierung akzeptiert). Ohne sie
+ * staut sich der Monatsrest auf den angeschnittenen Rand-Wochen (z.B. ein
+ * Samstag am Monatsanfang mit drei 9,5-h-Azubis).
+ */
+function rigidWeeklyCapMinutes(employee: Employee): number | null {
+  const cap = weeklyCapMinutes(employee);
+  return cap === null ? null : cap + AZUBI_WEEKLY_TARGET_FLEX_HOURS * 60;
+}
+
 function planRigidHours(
   state: SchedulerState,
   employee: Employee,
@@ -1101,7 +1112,7 @@ function planRigidHours(
   const target = employee.targetMinutes / 60;
   const minH = RIGID_MIN_HOURS[employee.employmentType];
   const dayMax = (d: string) => Math.min(MAX_DAILY_MINUTES, maxPaidForDay(state.dayOf(d))) / 60;
-  const weekCapMin = weeklyCapMinutes(employee);
+  const weekCapMin = rigidWeeklyCapMinutes(employee);
   const weekCap = weekCapMin === null ? Number.POSITIVE_INFINITY : weekCapMin / 60;
 
   const fixed = new Map<string, number>();
@@ -1185,7 +1196,7 @@ function placeRigidShifts(state: SchedulerState): void {
         : Math.min(10, Math.max(RIGID_MIN_HOURS[employee.employmentType], (remaining / 60) * share));
 
       let dayCapMinutes = maxPaidForDay(state.dayOf(isoDate));
-      const weekCap = weeklyCapMinutes(employee);
+      const weekCap = rigidWeeklyCapMinutes(employee);
       if (weekCap !== null) {
         const used = state.weekMinutes.get(employee.id)!.get(weekKeyOf(isoDate)) ?? 0;
         dayCapMinutes = Math.min(dayCapMinutes, weekCap - used);
