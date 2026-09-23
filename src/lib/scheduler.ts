@@ -1576,6 +1576,68 @@ function balanceShiftTypes(state: SchedulerState): void {
 }
 
 /**
+ * Jede Rolle (Bếp/Bồi) muss an JEDEM offenen Tag mindestens EINMAL vorkommen.
+ * Fehlt eine Rolle ganz (z.B. kein Bồi an einem Sonntag in der Azubi-Schulzeit),
+ * wird eine Schicht dieser Rolle von einem Tag mit Überschuss (≥2 gleiche Rolle)
+ * hierher verschoben. Datum/Länge bleiben – nur der Tag wechselt, damit die
+ * Monats-Sollzahlen exakt bleiben. Läuft VOR der Öffnungs-/Schluss-Reparatur.
+ */
+function repairRoleDayPresence(state: SchedulerState): void {
+  if (!state.isThienlong) return;
+  const roleOf = (shift: Shift): WorkRole | undefined =>
+    state.employeesById.get(shift.employeeId)?.workRole;
+
+  for (const role of ["KITCHEN", "SERVICE"] as const) {
+    for (const date of state.dates) {
+      const day = state.dayOf(date);
+      if (day.closed || maxPaidForDay(day) === 0) continue;
+      const hasRole = () => state.shifts.some((s) => s.date === date && roleOf(s) === role);
+      if (hasRole()) continue;
+
+      // Spender-Tage mit den meisten gleichrollen Schichten zuerst.
+      const donorDates = [...new Set(state.shifts.filter((s) => roleOf(s) === role).map((s) => s.date))]
+        .filter((d) => d !== date)
+        .map((d) => ({ d, n: state.shifts.filter((s) => s.date === d && roleOf(s) === role).length }))
+        .filter((x) => x.n >= 2)
+        .sort((a, b) => b.n - a.n)
+        .map((x) => x.d);
+
+      let moved = false;
+      for (const donor of donorDates) {
+        if (moved) break;
+        const roleShifts = state.shifts.filter((s) => s.date === donor && roleOf(s) === role);
+        for (const shift of roleShifts) {
+          const emp = state.employeesById.get(shift.employeeId);
+          if (!emp) continue;
+          const worked = state.worked.get(emp.id)!;
+          if (worked.has(date)) continue;
+          if (!matchesEmployeeDayRules(state, emp, date)) continue;
+          if (maxPaidForDay(day) < shift.paidMinutes) continue;
+          const prof = thienlongStaffingProfile(weekdayKeyOf(parseIsoDate(date)), state.holidays.has(date));
+          if (state.dateState.get(date)!.count >= prof.maxStaff) continue;
+          const trial = new Set(worked);
+          trial.delete(donor);
+          if (consecutiveRunLengthWith(trial, date) > 6) continue;
+          const weekCap = weeklyCapMinutes(emp);
+          if (weekCap !== null) {
+            const wm = state.weekMinutes.get(emp.id)!;
+            const used =
+              (wm.get(weekKeyOf(date)) ?? 0) +
+              shift.paidMinutes -
+              (weekKeyOf(donor) === weekKeyOf(date) ? shift.paidMinutes : 0);
+            if (used > weekCap) continue;
+          }
+          removeShift(state, shift);
+          applyShift(state, makeRoleAwareShift(state, emp, date, shift.paidMinutes));
+          moved = true;
+          break;
+        }
+      }
+    }
+  }
+}
+
+/**
  * Harte Rollen-Abdeckung (Thienlong): An jedem offenen Tag muss JEDE Rolle
  * (Bếp/Bồi) sowohl die Öffnung als auch den Ladenschluss abdecken – sonst steht
  * z.B. bei Öffnung kein Koch oder zum Schluss kein Service da. Es werden nur
@@ -1905,6 +1967,8 @@ export function generateSchedule(input: GenerateInput): Shift[] {
   }
   if (state.isVietpho) balanceVietphoPeaks(state);
   else balanceShiftTypes(state);
+  // Jede Rolle kommt an jedem offenen Tag mindestens einmal vor.
+  repairRoleDayPresence(state);
   // Harte Regel zuletzt: jede Rolle deckt Öffnung UND Schluss ab.
   repairRoleCoverage(state);
   // Danach: möglichst zwei Öffner je Tag (ohne einen Ladenschluss zu opfern).
