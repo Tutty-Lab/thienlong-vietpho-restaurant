@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { RoleBadge } from "./RoleBadge";
 import type { UseScheduleReturn } from "../hooks/useSchedule";
 import type { Shift } from "../types";
 import {
@@ -270,7 +271,10 @@ export function ScheduleTab({ store }: { store: UseScheduleReturn }) {
                 return (
                   <tr key={emp.id} className="hover:bg-slate-50/50">
                     <td className="sticky left-0 z-10 bg-white border-b border-r border-slate-200 px-2 py-1 font-medium whitespace-nowrap">
-                      {emp.name}
+                      <span className="flex items-center gap-1.5">
+                        {emp.name}
+                        <RoleBadge role={emp.workRole} />
+                      </span>
                     </td>
                     <td className="border-b border-slate-100 px-2 py-1 text-slate-500">
                       {emp.employmentType === "VOLLZEIT"

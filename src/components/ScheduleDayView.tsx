@@ -1,4 +1,5 @@
 import { useMemo, useRef, useEffect } from "react";
+import { RoleBadge } from "./RoleBadge";
 import type { UseScheduleReturn } from "../hooks/useSchedule";
 import type { Shift } from "../types";
 import {
@@ -53,12 +54,21 @@ export function ScheduleDayView({
     [shiftsOfDay],
   );
 
-  const working = schedule.employees.filter((e) => shiftByEmp.has(e.id));
+  // Nach Rolle (Bếp vor Bồi) und Beginn sortiert – so lässt sich die Besetzung je Gruppe prüfen.
+  const roleOrder = (e: (typeof schedule.employees)[number]) =>
+    e.workRole === "KITCHEN" ? 0 : e.workRole === "SERVICE" ? 1 : 2;
+  const working = schedule.employees
+    .filter((e) => shiftByEmp.has(e.id))
+    .sort(
+      (a, b) =>
+        roleOrder(a) - roleOrder(b) ||
+        shiftByEmp.get(a.id)!.startMinutes - shiftByEmp.get(b.id)!.startMinutes,
+    );
   const free = schedule.employees.filter((e) => !shiftByEmp.has(e.id));
 
   const totalMin = shiftsOfDay.reduce((a, s) => a + s.paidMinutes, 0);
-  const earlyCount = shiftsOfDay.filter((s) => s.shiftType === "EARLY").length;
-  const lateCount = shiftsOfDay.length - earlyCount;
+  const kitchenCount = working.filter((e) => e.workRole === "KITCHEN").length;
+  const serviceCount = working.filter((e) => e.workRole === "SERVICE").length;
 
   const ov = overridesByDate.get(selectedDate);
   const holiday = holidayNames.get(selectedDate);
@@ -126,7 +136,7 @@ export function ScheduleDayView({
       <div className="mt-2 grid grid-cols-3 gap-2 text-center">
         <Summary label="Số NV" value={String(working.length)} />
         <Summary label="Tổng giờ" value={minutesToShortHours(totalMin)} />
-        <Summary label="Sáng / Tối" value={`${earlyCount} / ${lateCount}`} />
+        <Summary label="Bếp / Bồi" value={`${kitchenCount} / ${serviceCount}`} />
       </div>
 
       {/* Danh sách người làm */}
@@ -148,14 +158,17 @@ export function ScheduleDayView({
                 } ${!s.generated ? "shift-custom" : ""}`}
               >
                 <div className="flex-1 min-w-0">
-                  <div className="font-medium truncate">{emp.name}</div>
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    <span className="font-medium truncate">{emp.name}</span>
+                    <RoleBadge role={emp.workRole} />
+                  </div>
                   <div className="text-xs opacity-80">
                     {emp.employmentType === "VOLLZEIT"
                       ? "Toàn thời gian"
                       : emp.employmentType === "AZUBI"
                         ? "Azubi (học nghề)"
                         : "Bán thời gian"} ·{" "}
-                    {isEarly ? "Ca sáng" : "Ca tối"}
+                    {mealLabel(s)}
                   </div>
                 </div>
                 <div className="text-right shrink-0">
@@ -190,7 +203,9 @@ export function ScheduleDayView({
                       : "border-slate-200 bg-slate-50 text-slate-600 hover:border-slate-300"
                   }`}
                 >
-                  {emp.name}{fixedDayOff ? " · nghỉ cố định" : ""}
+                  {emp.name}
+                  {emp.workRole ? ` · ${emp.workRole === "KITCHEN" ? "Bếp" : "Bồi"}` : ""}
+                  {fixedDayOff ? " · nghỉ cố định" : ""}
                 </button>
               );
             })}
@@ -208,4 +223,13 @@ function Summary({ label, value }: { label: string; value: string }) {
       <div className="text-base font-semibold text-slate-900 leading-tight">{value}</div>
     </div>
   );
+}
+
+/** „Ca trưa" / „Ca tối" / „Trưa + tối" nach den tatsächlichen Zeiten. */
+function mealLabel(shift: Shift): string {
+  const segs = shift.segments ?? [{ startMinutes: shift.startMinutes, endMinutes: shift.endMinutes }];
+  const lunch = segs.some((g) => g.startMinutes < 15 * 60);
+  const dinner = segs.some((g) => g.endMinutes > 17 * 60);
+  if (lunch && dinner) return "Trưa + tối";
+  return lunch ? "Ca trưa" : "Ca tối";
 }
