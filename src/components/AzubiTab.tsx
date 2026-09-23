@@ -276,7 +276,7 @@ export function AzubiTab({ store }: { store: UseScheduleReturn }) {
             {monthMode === "work" && (
               <div className="mt-4 max-w-sm">
                 <label htmlFor={monthlyInputId} className="block text-sm font-medium text-slate-700">
-                  Giờ làm tháng {schedule.month}/{schedule.year} ngoài kỳ học
+                  Giờ làm mỗi tháng ngoài kỳ học (mức chung)
                 </label>
                 <div className="mt-1 flex items-center gap-2">
                   <input
@@ -303,6 +303,34 @@ export function AzubiTab({ store }: { store: UseScheduleReturn }) {
                     nguyên {monthlyHours}h do chủ nhập.
                   </p>
                 )}
+
+                {/* Giờ riêng cho đúng tháng đang chọn (vd. tháng chỉ có 4 tuần trọn) */}
+                <label
+                  htmlFor={`${monthlyInputId}-this-month`}
+                  className="mt-4 block text-sm font-medium text-slate-700"
+                >
+                  Riêng tháng {schedule.month}/{schedule.year} (tùy chọn)
+                </label>
+                <div className="mt-1 flex items-center gap-2">
+                  <input
+                    id={`${monthlyInputId}-this-month`}
+                    type="number"
+                    min={0}
+                    step={0.5}
+                    placeholder={String(monthlyHours)}
+                    value={cfg.workMonthHoursByMonth?.[azubiMonthKey(schedule.year, schedule.month)] ?? ""}
+                    onChange={(event) =>
+                      store.setAzubiWorkMonthHours(
+                        employee.id,
+                        schedule.year,
+                        schedule.month,
+                        event.target.value === "" ? null : Number(event.target.value),
+                      )
+                    }
+                    className="w-28 rounded border border-slate-300 px-2 py-1.5 text-sm focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-500"
+                  />
+                  <span className="text-xs text-slate-500">h — để trống = theo mức chung</span>
+                </div>
               </div>
             )}
           </section>

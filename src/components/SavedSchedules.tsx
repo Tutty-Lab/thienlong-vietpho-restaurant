@@ -70,6 +70,8 @@ export function SavedSchedulesPanel({
                   onClick={() => {
                     updateMeta({ year: m.year, month: m.month });
                     onClose();
+                    // Về đầu trang để thấy rõ đã chuyển tháng.
+                    window.scrollTo({ top: 0, behavior: "smooth" });
                   }}
                   className="shrink-0 rounded-full border border-slate-300 px-3 py-1 text-xs text-slate-700 hover:border-slate-500"
                 >

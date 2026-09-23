@@ -2631,18 +2631,11 @@ function buildUnmetMessage(
   }
 
   // Azubi: Wochendecke (38,5 h + 1 h Reserve) × Wochen des Monats begrenzt das Soll.
+  const weekCap = Math.round((AZUBI_HOURS_OUT_OF_TERM + AZUBI_WEEKLY_TARGET_FLEX_HOURS) * 60);
   const azubiHints = unmet
     .filter((e) => e.employmentType === "AZUBI")
     .map((e) => {
-      const perWeek = new Map<string, number>();
-      for (const d of dates) {
-        if (dayOf(d).closed || !matchesEmployeeDayRules(state, e, d)) continue;
-        const k = weekKeyOf(d);
-        perWeek.set(k, (perWeek.get(k) ?? 0) + Math.min(MAX_DAILY_MINUTES, maxPaidForDay(dayOf(d))));
-      }
-      const weekCap = (weeklyCapMinutes(e) ?? 0) + AZUBI_WEEKLY_TARGET_FLEX_HOURS * 60;
-      let max = 0;
-      for (const minutes of perWeek.values()) max += Math.min(weekCap, minutes);
+      const max = azubiCapacityMinutes(e, dates, dayOf);
       return max < e.targetMinutes
         ? `${e.name} tháng này tối đa ${max / 60}h (giới hạn ${weekCap / 60}h/tuần) – hãy đặt giờ riêng cho tháng này ở tab Azubi (≤ ${max / 60}h).`
         : "";
@@ -2655,6 +2648,43 @@ function buildUnmetMessage(
   return (
     `Không xếp đủ định mức: ${missing}. ` +
     "Hãy kiểm tra ngày nghỉ cố định hoặc giờ mở cửa của tháng này."
+  );
+}
+
+/**
+ * Höchstes Monatssoll, das ein Azubi in diesem Monat überhaupt erreichen kann:
+ * je Woche min(Wochendecke inkl. Reserve, Summe der möglichen Tageslängen an
+ * seinen erlaubten Tagen). Liegt das Soll darüber, ist der Monat unlösbar.
+ */
+function azubiCapacityMinutes(
+  employee: Employee,
+  dates: readonly string[],
+  dayOf: (isoDate: string) => ResolvedDay,
+): number {
+  const weekCap = Math.round((AZUBI_HOURS_OUT_OF_TERM + AZUBI_WEEKLY_TARGET_FLEX_HOURS) * 60);
+  const perWeek = new Map<string, number>();
+  for (const d of dates) {
+    const day = dayOf(d);
+    if (day.closed || isEmployeeFixedDayOff(employee, d)) continue;
+    const k = weekKeyOf(d);
+    perWeek.set(k, (perWeek.get(k) ?? 0) + Math.min(MAX_DAILY_MINUTES, maxPaidForDay(day)));
+  }
+  let max = 0;
+  for (const minutes of perWeek.values()) max += Math.min(weekCap, minutes);
+  return max;
+}
+
+/** Öffentliche Variante für die UI (Hinweis + Schnellkorrektur je Monat). */
+export function azubiMonthCapacityMinutes(
+  employee: Employee,
+  input: Pick<GenerateInput, "year" | "month" | "workHours" | "overrides" | "holidays" | "holidayState">,
+): number {
+  const holidays = input.holidays ?? holidaysOf(input.year, input.holidayState ?? "BW");
+  const overrides = input.overrides ?? {};
+  return azubiCapacityMinutes(
+    employee,
+    datesOfMonth(input.year, input.month),
+    (d) => resolveDay(input.workHours, d, holidays, overrides),
   );
 }
 

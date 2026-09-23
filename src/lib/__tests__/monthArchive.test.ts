@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Schedule, Shift } from "../../types";
-import { listSavedMonths, monthKey, switchMonth } from "../monthArchive";
+import { listSavedMonths, mergeArchives, monthKey, switchMonth } from "../monthArchive";
 import { DEFAULT_WORK_HOURS } from "../workHours";
 
 const shift = (id: string, date: string, paidMinutes = 6 * 60): Shift => ({
@@ -43,5 +43,29 @@ describe("month archive", () => {
     expect(st.schedule.archive).toEqual({});
     expect(st.schedule.year).toBe(2027);
     expect(monthKey(2027, 1)).toBe("2027-01");
+  });
+});
+
+describe("merging archives from another tab/device", () => {
+  it("keeps months the other copy has saved, never drops own months", () => {
+    const aug = [shift("a", "2026-08-03")];
+    const sep = [shift("s", "2026-09-01")];
+    // Dieser Tab: August offen, September gespeichert.
+    const mine = { ...base(2026, 8, aug), archive: { "2026-09": { shifts: sep, originalShifts: sep, savedAt: "x" } } };
+    // Veralteter Tab: nur Juli gespeichert, August offen (alte Version).
+    const jul = [shift("j", "2026-07-01")];
+    const stale = { ...base(2026, 8, [shift("old", "2026-08-05")]), archive: { "2026-07": { shifts: jul, originalShifts: jul, savedAt: "y" } } };
+
+    const merged = mergeArchives(mine, stale);
+    expect(Object.keys(merged.archive ?? {}).sort()).toEqual(["2026-07", "2026-09"]);
+    expect(merged.shifts).toEqual(aug); // eigener offener Monat bleibt
+    expect(mergeArchives(merged, stale)).toBe(merged); // nichts Neues -> gleiche Referenz
+  });
+
+  it("stores the other copy's open month if this copy does not have it", () => {
+    const sep = [shift("s", "2026-09-01")];
+    const mine = base(2026, 8, [shift("a", "2026-08-03")]);
+    const other = base(2026, 9, sep);
+    expect(mergeArchives(mine, other).archive?.["2026-09"]?.shifts).toEqual(sep);
   });
 });

@@ -3,7 +3,7 @@
 // archive, và lịch đã lưu của tháng đích (nếu có) được mở lại.
 // ============================================================================
 
-import type { Schedule, Shift } from "../types";
+import type { MonthArchive, Schedule, Shift } from "../types";
 
 /** Schlüssel eines Monats im Archiv, z.B. "2026-08". */
 export function monthKey(year: number, month: number): string {
@@ -71,4 +71,32 @@ export function listSavedMonths(schedule: Schedule): SavedMonth[] {
     });
   }
   return list.sort((a, b) => a.key.localeCompare(b.key));
+}
+
+/**
+ * Gộp kho lưu của một bản khác (tab/máy khác, hoặc bản đang nằm trong
+ * localStorage/Supabase) vào bản của mình: tháng nào mình chưa có thì giữ lại,
+ * để một tab cũ không bao giờ xoá mất tháng đã lưu. Tháng đang mở của mình
+ * không nằm trong kho; tháng đang mở của bản kia được cất vào kho nếu khác.
+ * Trả về chính `mine` nếu không có gì mới.
+ */
+export function mergeArchives(mine: Schedule, other: Schedule | undefined | null): Schedule {
+  if (!other) return mine;
+  const openKey = monthKey(mine.year, mine.month);
+  const archive = { ...(mine.archive ?? {}) };
+  let changed = false;
+  const add = (key: string, entry: MonthArchive) => {
+    if (key === openKey || archive[key]) return;
+    archive[key] = entry;
+    changed = true;
+  };
+  for (const [key, entry] of Object.entries(other.archive ?? {})) add(key, entry);
+  if (Array.isArray(other.shifts) && other.shifts.length > 0 && other.year && other.month) {
+    add(monthKey(other.year, other.month), {
+      shifts: other.shifts,
+      originalShifts: [],
+      savedAt: new Date().toISOString(),
+    });
+  }
+  return changed ? { ...mine, archive } : mine;
 }

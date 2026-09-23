@@ -152,6 +152,29 @@ export function ScheduleTab({ store }: { store: UseScheduleReturn }) {
       </div>
 
 
+      {/* Azubi không thể đủ giờ trong tháng này – sửa nhanh bằng giờ riêng cho tháng */}
+      {store.azubiCapacityIssues.length > 0 && (
+        <div className="mb-3 rounded bg-amber-50 border border-amber-200 text-amber-900 text-sm px-3 py-2 space-y-2">
+          {store.azubiCapacityIssues.map(({ employee, maxMinutes }) => (
+            <div key={employee.id} className="flex flex-wrap items-center gap-2">
+              <span className="flex-1 min-w-[12rem]">
+                <b>{employee.name}</b>: tháng {schedule.month}/{schedule.year} tối đa chỉ xếp được{" "}
+                <b>{maxMinutes / 60}h</b> (giới hạn Azubi 39,5h/tuần, ngày nghỉ cố định), không đủ{" "}
+                {employee.targetMinutes / 60}h.
+              </span>
+              <button
+                onClick={() =>
+                  store.setAzubiWorkMonthHours(employee.id, schedule.year, schedule.month, maxMinutes / 60)
+                }
+                className="rounded bg-amber-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-amber-700"
+              >
+                Đặt tháng {schedule.month}/{schedule.year} = {maxMinutes / 60}h
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
       {!readiness.ready && (
         <div className="mb-3 rounded bg-amber-50 border border-amber-200 text-amber-800 text-sm px-3 py-2">
           {readiness.issues.join(" ")}

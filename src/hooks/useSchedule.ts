@@ -5,7 +5,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Employee, Schedule, Shift } from "../types";
-import { generateSchedule } from "../lib/scheduler";
+import { azubiMonthCapacityMinutes, generateSchedule } from "../lib/scheduler";
 import { validateSchedule, type ValidationResult } from "../lib/validation";
 import { clearState, loadState, saveState, type PersistedState } from "../lib/storage";
 import { isRemoteConfigured, loadRemote, saveRemote, type RemoteStatus } from "../lib/remote";
@@ -28,7 +28,7 @@ import {
   normalizeSurchargeConfig,
 } from "../lib/zuschlaege";
 import { isEmployeeFixedDayOff, normalizedFixedDaysOff } from "../lib/fixedDaysOff";
-import { listSavedMonths, switchMonth } from "../lib/monthArchive";
+import { listSavedMonths, mergeArchives, monthKey, switchMonth } from "../lib/monthArchive";
 
 function emptySchedule(store: StoreConfig): Schedule {
   const now = new Date();
@@ -116,8 +116,18 @@ export function useSchedule() {
     isRemoteConfigured ? "idle" : "off",
   );
 
+  // Nach „Xoá dữ liệu" darf das Zusammenführen die alten Monate nicht zurückholen.
+  const skipArchiveMerge = useRef(false);
+
   // Immer sofort lokal sichern – das ist der Offline-Puffer, je Filiale getrennt.
+  // Vorher gespeicherte Monate aus dem LocalStorage übernehmen (anderer Tab),
+  // damit ein veralteter Tab nie einen gespeicherten Monat löscht.
   useEffect(() => {
+    const merged = mergeArchives(schedule, loadState(storeId)?.schedule);
+    if (merged !== schedule) {
+      setSchedule(merged); // speichert im nächsten Durchlauf
+      return;
+    }
     saveState(storeId, { schedule, originalShifts });
   }, [storeId, schedule, originalShifts]);
 
@@ -163,7 +173,15 @@ export function useSchedule() {
     if (!isRemoteConfigured || !hydrated.current) return;
     const timer = window.setTimeout(() => {
       setRemoteStatus("saving");
-      saveRemote(storeId, { schedule, originalShifts })
+      (async () => {
+        // Gespeicherte Monate anderer Geräte behalten (Archiv zusammenführen).
+        const skip = skipArchiveMerge.current;
+        skipArchiveMerge.current = false;
+        const remote = skip ? null : await loadRemote(storeId).catch(() => null);
+        const merged = mergeArchives(schedule, remote?.schedule);
+        await saveRemote(storeId, { schedule: merged, originalShifts });
+        if (merged !== schedule) setSchedule((cur) => mergeArchives(cur, remote?.schedule));
+      })()
         .then(() => setRemoteStatus("idle"))
         .catch(() => setRemoteStatus("error"));
     }, 1000);
@@ -220,6 +238,56 @@ export function useSchedule() {
         storeId,
       }),
     [schedule.employees, storeId],
+  );
+
+  /**
+   * Azubis, deren Monatssoll in diesem Monat wegen der Wochendecke gar nicht
+   * erreichbar ist (z.B. Sept 2026: max. 168 h statt 174 h).
+   */
+  const azubiCapacityIssues = useMemo(() => {
+    if (storeId !== "thienlong") return [];
+    return schedule.employees
+      .filter((e) => e.employmentType === "AZUBI" && e.targetMinutes > 0)
+      .map((e) => ({
+        employee: e,
+        maxMinutes: azubiMonthCapacityMinutes(e, {
+          year: schedule.year,
+          month: schedule.month,
+          workHours: schedule.workHours,
+          overrides: overridesToMap(schedule.dateOverrides),
+          holidayState: schedule.holidayState,
+        }),
+      }))
+      .filter((x) => x.maxMinutes < x.employee.targetMinutes);
+  }, [schedule.employees, schedule.year, schedule.month, schedule.workHours, schedule.dateOverrides, schedule.holidayState, storeId]);
+
+  /** Giờ riêng cho MỘT tháng đi làm của Azubi (không đổi mức chung). */
+  const setAzubiWorkMonthHours = useCallback(
+    (employeeId: string, year: number, month: number, hours: number | null) => {
+      setSchedule((s) => ({
+        ...s,
+        employees: s.employees.map((e) => {
+          if (e.id !== employeeId || e.employmentType !== "AZUBI") return e;
+          const cfg = e.azubi ?? defaultAzubiConfig();
+          const key = monthKey(year, month);
+          const next = { ...(cfg.workMonthHoursByMonth ?? {}) };
+          if (hours === null) delete next[key];
+          else next[key] = Math.max(0, hours);
+          return normalizeEmployee(
+            {
+              ...e,
+              azubi: {
+                ...cfg,
+                workMonthHoursByMonth: Object.keys(next).length > 0 ? next : undefined,
+              },
+            },
+            s.year,
+            s.month,
+          );
+        }),
+      }));
+    },
+    [],
   );
 
   // ----- Firma / Monat / Öffnungszeiten -----
@@ -328,6 +396,7 @@ export function useSchedule() {
 
   const resetAll = useCallback(() => {
     clearState(storeId);
+    skipArchiveMerge.current = true;
     setSchedule(emptySchedule(storeById(storeId)));
     setOriginalShifts([]);
     setGenError(null);
@@ -431,6 +500,8 @@ export function useSchedule() {
     hasOriginal: originalShifts.length > 0,
     updateMeta,
     savedMonths,
+    azubiCapacityIssues,
+    setAzubiWorkMonthHours,
     addEmployee,
     updateEmployee,
     removeEmployee,

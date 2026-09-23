@@ -41,6 +41,12 @@ export type AzubiConfig = {
   monthlyHoursOutOfTerm?: number;
   /** Exaktes Monatssoll fuer gemischte Schul-/Arbeitsmonate, Schluessel yyyy-MM. */
   monthlyHoursByMonth?: Record<string, number>;
+  /**
+   * Abweichendes Monatssoll für einzelne ARBEITSmonate (yyyy-MM), z.B. wenn
+   * die Wochendecke im Monat nur 168 h zulässt. Getrennt von
+   * monthlyHoursByMonth, damit alte Schulmonats-Werte nie in Arbeitsmonate rutschen.
+   */
+  workMonthHoursByMonth?: Record<string, number>;
   /** @deprecated Altdaten; werden beim Laden migriert. */
   weeklyHoursInTerm?: number;
   /** @deprecated Altdaten; werden beim Laden auf Monatsstunden umgerechnet. */

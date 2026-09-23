@@ -86,6 +86,7 @@ function normalizedAzubiConfig(cfg: AzubiConfig | undefined): AzubiConfig {
   const schoolTermStart = rawStart && rawEnd && rawStart > rawEnd ? rawEnd : rawStart;
   const schoolTermEnd = rawStart && rawEnd && rawStart > rawEnd ? rawStart : rawEnd;
   const monthlyHoursByMonth = normalizeMonthlyHoursByMonth(source.monthlyHoursByMonth);
+  const workMonthHoursByMonth = normalizeMonthlyHoursByMonth(source.workMonthHoursByMonth);
 
   return {
     inSchoolTerm: source.inSchoolTerm,
@@ -94,6 +95,7 @@ function normalizedAzubiConfig(cfg: AzubiConfig | undefined): AzubiConfig {
     schoolDays: [...(source.schoolDays ?? [])],
     monthlyHoursOutOfTerm: monthlyHoursFrom(source),
     ...(monthlyHoursByMonth && { monthlyHoursByMonth }),
+    ...(workMonthHoursByMonth && { workMonthHoursByMonth }),
   };
 }
 
@@ -212,7 +214,10 @@ export function azubiMonthlyHoursForMonth(
   if (mode !== "work") {
     return normalized.monthlyHoursByMonth?.[azubiMonthKey(year, month)] ?? 0;
   }
-  return azubiMonthlyHoursOutOfTerm(normalized);
+  return (
+    normalized.workMonthHoursByMonth?.[azubiMonthKey(year, month)] ??
+    azubiMonthlyHoursOutOfTerm(normalized)
+  );
 }
 
 /** Status shown on the printed/exported timesheet for the selected month. */
@@ -274,6 +279,7 @@ export function withAutomaticAzubiTarget(
     oldConfig.schoolTermEnd !== azubi.schoolTermEnd ||
     oldConfig.monthlyHoursOutOfTerm !== azubi.monthlyHoursOutOfTerm ||
     !monthlyHoursMapsEqual(oldConfig.monthlyHoursByMonth, azubi.monthlyHoursByMonth) ||
+    !monthlyHoursMapsEqual(oldConfig.workMonthHoursByMonth, azubi.workMonthHoursByMonth) ||
     oldConfig.weeklyHoursInTerm !== undefined ||
     oldConfig.weeklyHoursOutOfTerm !== undefined;
   if (!configChanged && employee.targetMinutes === targetMinutes) return employee;
