@@ -1959,18 +1959,42 @@ function repairRoleGaps(state: SchedulerState): boolean {
   const typeRank = (e: Employee) =>
     e.employmentType === "TEILZEIT" ? 0 : e.employmentType === "AZUBI" ? 1 : 2;
 
-  /** Kürzt eine Schicht um 30 min (Ende des längsten Stücks). */
-  const shorten = (sh: Shift): Shift => {
+  /**
+   * Mögliche Kürzungen um 30 min: Ende oder Anfang eines Stücks (bei geteilten
+   * Diensten jedes Stück, das danach noch ≥ 2 h hat). Welche davon keine
+   * Lücke reißt, entscheidet safeShorten.
+   */
+  const shortenVariants = (sh: Shift): Shift[] => {
     const paid = sh.paidMinutes - SLOT;
     if (sh.segments && sh.segments.length > 1) {
-      const segs = sh.segments.map((g) => ({ ...g }));
-      const i = segs.reduce((best, g, k) =>
-        g.endMinutes - g.startMinutes > segs[best].endMinutes - segs[best].startMinutes ? k : best, 0);
-      segs[i].endMinutes -= SLOT;
-      return { ...sh, segments: segs, paidMinutes: paid, endMinutes: segs[segs.length - 1].endMinutes };
+      const out: Shift[] = [];
+      sh.segments.forEach((g, i) => {
+        if (g.endMinutes - g.startMinutes - SLOT < 2 * 60) return;
+        for (const cut of ["end", "start"] as const) {
+          const segs = sh.segments!.map((x) => ({ ...x }));
+          if (cut === "end") segs[i].endMinutes -= SLOT;
+          else segs[i].startMinutes += SLOT;
+          out.push({
+            ...sh,
+            segments: segs,
+            paidMinutes: paid,
+            startMinutes: segs[0].startMinutes,
+            endMinutes: segs[segs.length - 1].endMinutes,
+          });
+        }
+      });
+      // Längstes Stück zuerst kürzen.
+      return out.sort(
+        (x, y) =>
+          Math.max(...y.segments!.map((g) => g.endMinutes - g.startMinutes)) -
+          Math.max(...x.segments!.map((g) => g.endMinutes - g.startMinutes)),
+      );
     }
     const pause = calculatePause(paid);
-    return { ...sh, paidMinutes: paid, pauseMinutes: pause, endMinutes: sh.startMinutes + paid + pause, segments: undefined };
+    return [
+      { ...sh, paidMinutes: paid, pauseMinutes: pause, endMinutes: sh.startMinutes + paid + pause, segments: undefined },
+      { ...sh, paidMinutes: paid, pauseMinutes: pause, startMinutes: sh.endMinutes - paid - pause, segments: undefined },
+    ];
   };
 
   /** Offene Slots einer Rolle an einem Tag (optional mit ersetzter Schicht). */
@@ -1988,10 +2012,13 @@ function repairRoleGaps(state: SchedulerState): boolean {
     }
     return n;
   };
-  /** Darf diese Schicht um 30 min kürzer werden, ohne dort eine Lücke zu reißen? */
-  const canShorten = (sh: Shift, e: Employee) =>
-    sh.paidMinutes - SLOT >= minPaidOf(e) &&
-    roleGapsOn(sh.date, e.workRole, [sh, shorten(sh)]) <= roleGapsOn(sh.date, e.workRole);
+  /** Kürzung um 30 min, die an jenem Tag keine Lücke reißt – oder null. */
+  const safeShorten = (sh: Shift, e: Employee): Shift | null => {
+    if (sh.paidMinutes - SLOT < minPaidOf(e)) return null;
+    const before = roleGapsOn(sh.date, e.workRole);
+    return shortenVariants(sh).find((v) => roleGapsOn(sh.date, e.workRole, [sh, v]) <= before) ?? null;
+  };
+  const canShorten = (sh: Shift, e: Employee) => safeShorten(sh, e) !== null;
 
   /** Nimmt `minutes` von anderen Tagen der Person weg; false, wenn nicht genug Luft. */
   const takeFromOtherDays = (e: Employee, exceptDate: string, minutes: number): boolean => {
@@ -2018,7 +2045,7 @@ function repairRoleGaps(state: SchedulerState): boolean {
         }
         return false;
       }
-      const next = shorten(longest);
+      const next = safeShorten(longest, e)!;
       removeShift(state, longest);
       applyShift(state, next);
       done.push([longest, next]);
