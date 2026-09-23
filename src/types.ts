@@ -68,11 +68,6 @@ export type Employee = {
   azubi?: AzubiConfig;
   /** Bếp (KITCHEN) oder Bồi (SERVICE), wenn die Person fest zugeordnet ist. */
   workRole?: WorkRole;
-  /**
-   * Fester Zwei-Filialen-Rhythmus: Thienlong Montag-Samstag, Vietpho Sonntag.
-   * Das Feld wird je Filiale im bestehenden Mitarbeiter-JSON gespeichert.
-   */
-  fixedStoreWeekPattern?: boolean;
   /** Feste Ruhetage der jeweiligen Filiale; dort darf keine Schicht liegen. */
   fixedDaysOff?: WeekdayName[];
   /**

@@ -109,63 +109,6 @@ describe("fixed weekly days off", () => {
     expect(teilzeit.fixedDaysOff).toBeUndefined();
   });
 
-  it("counts Sunday as the Thienlong day off for the fixed two-store pattern", () => {
-    const employee = normalizedFixedDaysOff(
-      {
-        id: "two-store-vollzeit",
-        name: "Two store Vollzeit",
-        employmentType: "VOLLZEIT",
-        targetMinutes: 192 * 60,
-        fixedStoreWeekPattern: true,
-      },
-      "thienlong",
-    );
-
-    expect(employee.fixedDaysOff).toEqual(["sunday"]);
-  });
-
-  it("keeps Sunday available as the Vietpho working day for legacy two-store data", () => {
-    const employee: Employee = {
-      id: "vietpho-copy",
-      name: "Vietpho copy",
-      employmentType: "VOLLZEIT",
-      targetMinutes: 20 * 60,
-      fixedStoreWeekPattern: true,
-      fixedDaysOff: ["sunday"],
-    };
-
-    const shifts = generateSchedule({
-      year: 2026,
-      month: 8,
-      storeId: "vietpho",
-      workHours: defaultWorkHoursForStore("vietpho"),
-      holidays: new Set<string>(),
-      employees: [employee],
-      seed: "vietpho-copy",
-    });
-
-    expect(shifts.reduce((total, shift) => total + shift.paidMinutes, 0)).toBe(20 * 60);
-    expect(
-      shifts.every((shift) => weekdayKeyOf(parseIsoDate(shift.date)) === "sunday"),
-    ).toBe(true);
-  });
-
-  it("removes Sunday from Vietpho fixed days for the two-store pattern", () => {
-    const employee = normalizedFixedDaysOff(
-      {
-        id: "two-store-vietpho",
-        name: "Two store Vietpho",
-        employmentType: "AZUBI",
-        targetMinutes: 20 * 60,
-        fixedStoreWeekPattern: true,
-        fixedDaysOff: ["sunday", "monday", "tuesday"],
-      },
-      "vietpho",
-    );
-
-    expect(employee.fixedDaysOff).toEqual(["monday", "tuesday"]);
-  });
-
   it("never schedules a Vietpho employee on the configured fixed weekday", () => {
     const employee: Employee = {
       id: "vietpho-fixed-off",

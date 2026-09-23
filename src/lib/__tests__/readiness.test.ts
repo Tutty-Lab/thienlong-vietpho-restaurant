@@ -110,25 +110,4 @@ describe("Schedule readiness", () => {
     expect(complete.ready).toBe(true);
   });
 
-  it("does not allow Sunday as Vietpho leave for a fixed two-store employee", () => {
-    const twoStore = employee({
-      fixedStoreWeekPattern: true,
-      fixedDaysOff: ["sunday"],
-    });
-    const colleague = employee({
-      id: "employee-2",
-      name: "Tran Van B",
-      fixedDaysOff: ["monday"],
-    });
-
-    const result = checkScheduleReadiness(
-      [twoStore, colleague],
-      { requireFixedDaysOff: true, storeId: "vietpho" },
-    );
-
-    expect(result.ready).toBe(false);
-    expect(result.issues).toContain(
-      "Vollzeit phải chọn đúng 1 ngày nghỉ cố định mỗi tuần.",
-    );
-  });
 });

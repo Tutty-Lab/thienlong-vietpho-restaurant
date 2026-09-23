@@ -85,3 +85,18 @@ export function splitTargetMinutes(
   }
   return splitTargetHours(targetMinutes / 60, employmentType).map((h) => h * 60);
 }
+
+/**
+ * Teilzeit/Minijob (Thienlong): kurze Einsätze von 2–4 h nur zu den
+ * Stoßzeiten (Mittag ODER Abend), dafür an vielen Tagen im Monat – statt
+ * weniger 9-h-Tage. Typisch 2–3 h, z.B. 20 h/Monat ≈ 8 Einsätze.
+ */
+export const TEILZEIT_SHIFT_HOURS: readonly number[] = [2, 2.5, 3, 3.5, 4];
+export const TEILZEIT_TYPICAL_SHIFT_HOURS = 2.5;
+
+/** Geplante Anzahl Einsätze; `maxDays` = so viele Tage stehen höchstens zur Verfügung. */
+export function teilzeitShiftCount(targetHours: number, maxDays = 26): number {
+  if (targetHours <= 0) return 0;
+  const byLength = Math.ceil(targetHours / TEILZEIT_TYPICAL_SHIFT_HOURS);
+  return Math.max(1, Math.min(byLength, maxDays));
+}

@@ -8,7 +8,7 @@ import {
   type WeekdayName,
   type WorkRole,
 } from "../types";
-import { splitTargetHours } from "../lib/splitTargetHours";
+import { splitTargetHours, teilzeitShiftCount } from "../lib/splitTargetHours";
 import {
   azubiConfigOf,
   azubiMonthKey,
@@ -45,6 +45,10 @@ const TYPE_SHORT: Record<EmploymentType, string> = {
 
 function splitInfo(targetHours: number, type: EmploymentType): { ok: boolean; text: string } {
   if (targetHours <= 0) return { ok: true, text: "—" };
+  if (type === "TEILZEIT") {
+    // Bán thời gian: nhiều ca ngắn 2–4h vào giờ cao điểm.
+    return { ok: true, text: `~${teilzeitShiftCount(targetHours)} ca ngắn 2–4h` };
+  }
   try {
     const parts = splitTargetHours(Math.round(targetHours), type);
     return { ok: true, text: `${parts.length} ca` };
@@ -59,7 +63,6 @@ type Draft = {
   workRole: WorkRole | "";
   hours: string;
   daysPerWeek: string;
-  fixedStoreWeekPattern: boolean;
   saved: boolean;
   fixedDaysOff: WeekdayName[];
   azubi: AzubiConfig;
@@ -72,7 +75,6 @@ function draftFrom(emp?: Employee): Draft {
     workRole: emp?.workRole ?? "",
     hours: emp ? String(emp.targetMinutes / 60) : "176",
     daysPerWeek: emp?.desiredDaysPerWeek ? String(emp.desiredDaysPerWeek) : "",
-    fixedStoreWeekPattern: emp?.fixedStoreWeekPattern === true,
     saved: emp?.saved === true,
     fixedDaysOff: emp?.fixedDaysOff ?? [],
     azubi: azubiConfigOf(emp?.azubi),
@@ -90,7 +92,6 @@ function draftToEmployee(d: Draft): Omit<Employee, "id"> {
     targetMinutes: isAzubi ? 0 : stunden * 60,
     azubi: isAzubi ? d.azubi : undefined,
     workRole: d.workRole || undefined,
-    fixedStoreWeekPattern: d.fixedStoreWeekPattern || undefined,
     saved: d.saved || undefined,
     // Teilzeit hat keine festen Ruhetage; Vollzeit/Azubi schon.
     fixedDaysOff: d.employmentType === "TEILZEIT" ? undefined : d.fixedDaysOff,
@@ -101,8 +102,6 @@ function draftToEmployee(d: Draft): Omit<Employee, "id"> {
 
 /** Liest die gewünschten Arbeitstage/Woche aus dem Formular (1..7 oder undefined). */
 function desiredDaysFromDraft(d: Draft): number | undefined {
-  // Der feste Zwei-Filialen-Rhythmus legt die Tage bereits fest.
-  if (d.fixedStoreWeekPattern) return undefined;
   const n = Math.round(Number(d.daysPerWeek));
   if (!Number.isFinite(n) || n < 1) return undefined;
   return Math.min(7, n);
@@ -139,8 +138,7 @@ export function EmployeesTab({ store }: { store: UseScheduleReturn }) {
         </button>
       </div>
       <p className="mb-4 text-xs text-slate-500">
-        Bấm vào một người để sửa. Bật “Lịch 2 quán” cho nhân viên làm cả hai cửa hàng
-        (Thienlong T2–T7, Vietpho Chủ Nhật). Vollzeit chọn 1 ngày nghỉ cố định, Azubi 2 ngày.
+        Bấm vào một người để sửa. Vollzeit chọn 1 ngày nghỉ cố định, Azubi 2 ngày.
       </p>
 
       {schedule.employees.length === 0 ? (
@@ -159,7 +157,6 @@ export function EmployeesTab({ store }: { store: UseScheduleReturn }) {
                   emp={emp}
                   year={schedule.year}
                   month={schedule.month}
-                  storeId={store.storeId}
                 />
                 <span className="text-slate-300 text-lg leading-none">›</span>
               </button>
@@ -207,12 +204,10 @@ function EmployeeSummaryRow({
   emp,
   year,
   month,
-  storeId,
 }: {
   emp: Employee;
   year: number;
   month: number;
-  storeId: string;
 }) {
   const isAzubi = emp.employmentType === "AZUBI";
   const azubiConfig = isAzubi ? azubiConfigOf(emp.azubi) : null;
@@ -223,7 +218,7 @@ function EmployeeSummaryRow({
     : splitInfo(stunden, emp.employmentType);
   const tooMany = !isAzubi && stunden > WARN_HOURS;
   const requiredDaysOff = requiredFixedDaysOff(emp.employmentType);
-  const daysOffOk = hasRequiredFixedDaysOff(emp, storeId);
+  const daysOffOk = hasRequiredFixedDaysOff(emp);
 
   return (
     <div className="flex-1 min-w-0">
@@ -239,11 +234,6 @@ function EmployeeSummaryRow({
             }`}
           >
             {emp.workRole === "KITCHEN" ? "Bếp" : "Bồi"}
-          </span>
-        ) : null}
-        {emp.fixedStoreWeekPattern ? (
-          <span className="shrink-0 rounded bg-sky-100 text-sky-800 text-[11px] px-1.5 py-0.5">
-            2 quán
           </span>
         ) : null}
         {tooMany && <span className="shrink-0 text-amber-600 text-xs">⚠</span>}
@@ -316,7 +306,7 @@ function EmployeeSheet({
 
   const requiredDaysOff = requiredFixedDaysOff(d.employmentType);
   const draftEmp: Employee = { id: "draft", ...draftToEmployee(d) };
-  const daysOffOk = hasRequiredFixedDaysOff(draftEmp, storeId);
+  const daysOffOk = hasRequiredFixedDaysOff(draftEmp);
 
   const toggleDayOff = (weekday: WeekdayName) => {
     const selected = d.fixedDaysOff.includes(weekday);
@@ -434,8 +424,7 @@ function EmployeeSheet({
           )}
 
           {/* Số ngày làm mong muốn / tuần */}
-          {!d.fixedStoreWeekPattern && (
-            <label className="block">
+          <label className="block">
               <span className="text-xs text-slate-600">Số ngày làm / tuần (tùy chọn)</span>
               <input
                 type="number"
@@ -449,25 +438,13 @@ function EmployeeSheet({
                 onChange={(e) => set("daysPerWeek", e.target.value)}
               />
               <span className="mt-1 block text-xs text-slate-500">
-                Bỏ trống = tự động. Nếu đặt, người này làm <b>tối đa</b> số ngày này mỗi tuần (có thể
-                thêm 1 ngày khi định mức không đủ chỗ). Độ dài ca vẫn theo nhu cầu — không cào bằng giờ.
+                Bỏ trống = tự động. Nếu đặt, người này làm <b>đúng</b> số ngày này mỗi tuần (trừ ngày nghỉ
+                cố định); giờ tháng được chia ra các ngày đó, cuối tuần dài hơn một chút.
               </span>
             </label>
-          )}
 
-          {/* Lịch 2 quán + Lưu */}
+          {/* Lưu */}
           <div className="flex flex-wrap gap-4 border-t border-slate-100 pt-3">
-            <label className="flex items-center gap-2 cursor-pointer select-none">
-              <input
-                type="checkbox"
-                checked={d.fixedStoreWeekPattern}
-                onChange={(e) => set("fixedStoreWeekPattern", e.target.checked)}
-                className="h-5 w-5 rounded border-slate-300 text-sky-700 focus:ring-sky-600"
-              />
-              <span className={`text-sm ${d.fixedStoreWeekPattern ? "font-medium text-sky-800" : "text-slate-600"}`}>
-                Lịch 2 quán
-              </span>
-            </label>
             <label className="flex items-center gap-2 cursor-pointer select-none">
               <input
                 type="checkbox"
@@ -499,7 +476,6 @@ function EmployeeSheet({
               <div className="grid grid-cols-7 gap-1.5">
                 {WEEKDAY_ORDER.map((weekday) => {
                   const selected = d.fixedDaysOff.includes(weekday);
-                  const lockedByStorePattern = d.fixedStoreWeekPattern && weekday === "sunday";
                   const maxReached =
                     requiredDaysOff > 1 && d.fixedDaysOff.length >= requiredDaysOff && !selected;
                   return (
@@ -507,7 +483,7 @@ function EmployeeSheet({
                       key={weekday}
                       type="button"
                       aria-pressed={selected}
-                      disabled={maxReached || lockedByStorePattern}
+                      disabled={maxReached}
                       onClick={() => toggleDayOff(weekday)}
                       className={`rounded border px-2 py-1.5 text-xs font-medium transition-colors ${
                         selected
@@ -520,13 +496,6 @@ function EmployeeSheet({
                   );
                 })}
               </div>
-              {d.fixedStoreWeekPattern && (
-                <p className="mt-1.5 text-[11px] text-sky-700">
-                  {storeId === "thienlong"
-                    ? "Lịch 2 quán khóa CN là ngày nghỉ tại Thienlong."
-                    : "Lịch 2 quán khóa CN là ngày làm tại Vietpho."}
-                </p>
-              )}
             </div>
           )}
         </div>

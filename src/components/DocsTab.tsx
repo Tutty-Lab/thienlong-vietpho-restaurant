@@ -248,10 +248,6 @@ export function DocsTab({ storeId }: { storeId: string }) {
             <b> Vollzeit chọn 1 ngày/tuần</b>, <b>Azubi chọn 2 ngày/tuần</b>; thuật toán
             và thao tác chuyển ca đều không được xếp vào các ngày đó.
           </li>
-          <li>
-            Checkbox <b>Lịch 2 quán</b> khóa nhân viên vào T2–T7 tại Thienlong và Chủ Nhật tại Vietpho;
-            CN là ngày nghỉ tại Thienlong nhưng là ngày làm tại Vietpho.
-          </li>
           {isThienlong ? (
             <li>Mỗi ngày mở cửa có ít nhất <b>2 nhân viên đến trước giờ mở cửa 30 phút</b>.</li>
           ) : (

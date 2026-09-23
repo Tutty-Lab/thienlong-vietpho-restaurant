@@ -51,7 +51,7 @@ export function checkScheduleReadiness(
     employees.some(
       (employee) =>
         employee.employmentType === "VOLLZEIT" &&
-        !hasRequiredFixedDaysOff(employee, options.storeId),
+        !hasRequiredFixedDaysOff(employee),
     )
   ) {
     issues.push("Vollzeit phải chọn đúng 1 ngày nghỉ cố định mỗi tuần.");
@@ -61,7 +61,7 @@ export function checkScheduleReadiness(
     employees.some(
       (employee) =>
         employee.employmentType === "AZUBI" &&
-        !hasRequiredFixedDaysOff(employee, options.storeId),
+        !hasRequiredFixedDaysOff(employee),
     )
   ) {
     issues.push("Azubi phải chọn đúng 2 ngày nghỉ cố định mỗi tuần.");

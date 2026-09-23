@@ -6,7 +6,7 @@ import { validateSchedule } from "../validation";
 import { DEFAULT_WORK_HOURS } from "../workHours";
 
 const currentThienlongEmployees: Employee[] = [
-  { id: "service-fixed", name: "Service fixed", employmentType: "VOLLZEIT", targetMinutes: 192 * 60, workRole: "SERVICE", fixedStoreWeekPattern: true },
+  { id: "service-fixed", name: "Service fixed", employmentType: "VOLLZEIT", targetMinutes: 192 * 60, workRole: "SERVICE" },
   { id: "kitchen-1", name: "Kitchen 1", employmentType: "VOLLZEIT", targetMinutes: 168 * 60, workRole: "KITCHEN" },
   { id: "kitchen-2", name: "Kitchen 2", employmentType: "VOLLZEIT", targetMinutes: 168 * 60, workRole: "KITCHEN" },
   { id: "service-1", name: "Service 1", employmentType: "TEILZEIT", targetMinutes: 100 * 60, workRole: "SERVICE" },
@@ -34,7 +34,6 @@ const currentSettingsWithFixedDays: Employee[] = currentThienlongEmployees.map((
   };
   return {
     ...employee,
-    fixedStoreWeekPattern: employee.id === "service-fixed" || employee.id === "azubi-2",
     fixedDaysOff: fixedDaysById[employee.id],
   };
 });
@@ -79,7 +78,9 @@ describe("Thienlong staffing bands", () => {
         expect(item.people.size, date).toBeLessThanOrEqual(7);
         // The 1.35/1.2 weighting takes priority when the monthly target is
         // too small to keep every quiet day at 55h.
-        expect(item.minutes / 60, date).toBeGreaterThanOrEqual(48);
+        // Teilzeit/Minijob kommt nur noch 2–4 h zur Stoßzeit, zählt aber als
+        // ganzer Kopf in der 6–7-Personen-Grenze – daher etwas Luft nach unten.
+        expect(item.minutes / 60, date).toBeGreaterThanOrEqual(46);
         expect(item.minutes / 60, date).toBeLessThanOrEqual(60);
         quietHours.push(item.minutes / 60);
       } else {

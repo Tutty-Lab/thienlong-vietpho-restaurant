@@ -144,7 +144,6 @@ describe("Vietpho scheduling profile", () => {
         name: "Thuy Loan Pham Thi",
         employmentType: "TEILZEIT",
         targetMinutes: 20 * 60,
-        fixedStoreWeekPattern: true,
       },
     ];
     const workHours = defaultWorkHoursForStore("vietpho");

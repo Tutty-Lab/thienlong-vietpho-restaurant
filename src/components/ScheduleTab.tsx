@@ -284,7 +284,7 @@ export function ScheduleTab({ store }: { store: UseScheduleReturn }) {
                     </td>
                     {dates.map((d) => {
                       const shift = shiftMap.get(`${emp.id}#${d}`);
-                      const fixedDayOff = isEmployeeFixedDayOff(emp, d, store.storeId);
+                      const fixedDayOff = isEmployeeFixedDayOff(emp, d);
                       return (
                         <td
                           key={d}

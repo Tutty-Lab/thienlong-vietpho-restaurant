@@ -177,7 +177,7 @@ export function ScheduleDayView({
           <div className="text-xs text-slate-500 mb-1">Đang nghỉ ({free.length}):</div>
           <div className="flex flex-wrap gap-1.5">
             {free.map((emp) => {
-              const fixedDayOff = isEmployeeFixedDayOff(emp, selectedDate, store.storeId);
+              const fixedDayOff = isEmployeeFixedDayOff(emp, selectedDate);
               return (
                 <button
                   key={emp.id}

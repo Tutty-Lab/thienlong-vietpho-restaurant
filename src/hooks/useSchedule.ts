@@ -54,17 +54,12 @@ function overridesToMap(list: DateOverride[]): OverrideMap {
   return map;
 }
 
-function normalizeEmployee(
-  employee: Employee,
-  year: number,
-  month: number,
-  storeId: string,
-): Employee {
-  return withAutomaticAzubiTarget(
-    normalizedFixedDaysOff(employee, storeId),
-    year,
-    month,
-  );
+function normalizeEmployee(employee: Employee, year: number, month: number): Employee {
+  // „Lịch 2 quán" gibt es nicht mehr – Altdaten verlieren das Feld beim Laden.
+  const { fixedStoreWeekPattern: _removed, ...rest } = employee as Employee & {
+    fixedStoreWeekPattern?: boolean;
+  };
+  return withAutomaticAzubiTarget(normalizedFixedDaysOff(rest), year, month);
 }
 
 /** Migriert einen (evtl. alten) gespeicherten Stand auf das aktuelle Schema. */
@@ -93,7 +88,7 @@ function normalizeSchedule(raw: Schedule | undefined, store: StoreConfig): Sched
     surchargeConfig: normalizeSurchargeConfig(raw.surchargeConfig),
     dateOverrides: Array.isArray(raw.dateOverrides) ? raw.dateOverrides : [],
     employees: (raw.employees ?? []).map((employee) =>
-      normalizeEmployee(employee, year, month, store.id),
+      normalizeEmployee(employee, year, month),
     ),
     shifts: raw.shifts ?? [],
   };
@@ -249,7 +244,6 @@ export function useSchedule() {
           },
           s.year,
           s.month,
-          storeId,
         );
         return { ...s, employees: [...s.employees, emp] };
       });
@@ -263,7 +257,7 @@ export function useSchedule() {
       ...s,
       employees: s.employees.map((e) =>
         e.id === id
-          ? normalizeEmployee({ ...e, ...patch }, s.year, s.month, storeId)
+          ? normalizeEmployee({ ...e, ...patch }, s.year, s.month)
           : e,
       ),
     }));
@@ -367,7 +361,7 @@ export function useSchedule() {
         const exists = s.shifts.some((sh) => sh.employeeId === employeeId && sh.date === date);
         if (exists) return s;
         const employee = s.employees.find((candidate) => candidate.id === employeeId);
-        if (employee && isEmployeeFixedDayOff(employee, date, storeId)) {
+        if (employee && isEmployeeFixedDayOff(employee, date)) {
           return s;
         }
         return { ...s, shifts: [...s.shifts, createManualShift(employeeId, date, start, end, pause)] };
@@ -398,7 +392,7 @@ export function useSchedule() {
       );
       if (conflict) return s;
       const targetEmployee = s.employees.find((employee) => employee.id === targetEmployeeId);
-      if (targetEmployee && isEmployeeFixedDayOff(targetEmployee, shift.date, storeId)) {
+      if (targetEmployee && isEmployeeFixedDayOff(targetEmployee, shift.date)) {
         return s;
       }
       return {

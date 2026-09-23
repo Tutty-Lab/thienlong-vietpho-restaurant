@@ -126,7 +126,7 @@ export function validateSchedule(
         });
       }
       seenDates.add(shift.date);
-      if (isEmployeeFixedDayOff(emp, shift.date, context?.storeId)) {
+      if (isEmployeeFixedDayOff(emp, shift.date)) {
         errors.push({
           employeeId: emp.id,
           date: shift.date,

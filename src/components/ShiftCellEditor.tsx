@@ -25,7 +25,7 @@ export function ShiftCellEditor({
     store;
   const employee = schedule.employees.find((e) => e.id === employeeId)!;
   const shift = findShift(employeeId, date);
-  const fixedDayOff = isEmployeeFixedDayOff(employee, date, store.storeId);
+  const fixedDayOff = isEmployeeFixedDayOff(employee, date);
 
   // Standardzeiten für eine neue Schicht = Arbeitszeit-Fenster dieses Tages
   // (inkl. Ausnahmen / Feiertag).
@@ -50,7 +50,7 @@ export function ShiftCellEditor({
     (e) =>
       e.id !== employeeId &&
       !findShift(e.id, date) &&
-      !isEmployeeFixedDayOff(e, date, store.storeId),
+      !isEmployeeFixedDayOff(e, date),
   );
 
   const weekday = WEEKDAY_LABELS_VI[weekdayKeyOf(parseIsoDate(date))];
