@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { RoleBadge } from "./RoleBadge";
+import { worksDinner, worksLunch } from "../lib/shiftMeals";
 import type { UseScheduleReturn } from "../hooks/useSchedule";
 import type { Shift } from "../types";
 import {
@@ -74,11 +75,9 @@ export function ScheduleTab({ store }: { store: UseScheduleReturn }) {
     [schedule.dateOverrides],
   );
 
-  // Tổng theo ngày cho các dòng chân bảng. Đếm số người CÓ MẶT thực tế ở giờ cao
-  // điểm trưa (13:00) và tối (19:00), tách theo vai trò Bếp/Bồi — để dễ kiểm tra
-  // độ phủ từng buổi (một ca tách vẫn được tính cho cả hai buổi).
-  const LUNCH_MINUTES = 13 * 60;
-  const DINNER_MINUTES = 19 * 60;
+  // Tổng theo ngày cho các dòng chân bảng: số người làm buổi trưa (có mặt trước
+  // 15:00) và buổi tối (có mặt sau 17:00), tách theo Bếp/Bồi. Ca tách đôi tính
+  // cho cả hai buổi.
   const roleOf = useMemo(
     () => new Map(schedule.employees.map((e) => [e.id, e.workRole] as const)),
     [schedule.employees],
@@ -103,21 +102,17 @@ export function ScheduleTab({ store }: { store: UseScheduleReturn }) {
         serviceDinner: 0,
       });
     }
-    const coversAt = (s: (typeof schedule.shifts)[number], t: number) => {
-      const segments = s.segments ?? [{ startMinutes: s.startMinutes, endMinutes: s.endMinutes }];
-      return segments.some((g) => g.startMinutes <= t && g.endMinutes > t);
-    };
     for (const s of schedule.shifts) {
       const st = stats.get(s.date);
       if (!st) continue;
       st.count += 1;
       st.total += s.paidMinutes;
       const role = roleOf.get(s.employeeId);
-      if (coversAt(s, LUNCH_MINUTES)) {
+      if (worksLunch(s)) {
         if (role === "KITCHEN") st.kitchenLunch += 1;
         else if (role === "SERVICE") st.serviceLunch += 1;
       }
-      if (coversAt(s, DINNER_MINUTES)) {
+      if (worksDinner(s)) {
         if (role === "KITCHEN") st.kitchenDinner += 1;
         else if (role === "SERVICE") st.serviceDinner += 1;
       }

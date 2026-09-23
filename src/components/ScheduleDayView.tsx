@@ -1,5 +1,6 @@
 import { useMemo, useRef, useEffect } from "react";
 import { RoleBadge } from "./RoleBadge";
+import { mealLabel } from "../lib/shiftMeals";
 import type { UseScheduleReturn } from "../hooks/useSchedule";
 import type { Shift } from "../types";
 import {
@@ -223,13 +224,4 @@ function Summary({ label, value }: { label: string; value: string }) {
       <div className="text-base font-semibold text-slate-900 leading-tight">{value}</div>
     </div>
   );
-}
-
-/** „Ca trưa" / „Ca tối" / „Trưa + tối" nach den tatsächlichen Zeiten. */
-function mealLabel(shift: Shift): string {
-  const segs = shift.segments ?? [{ startMinutes: shift.startMinutes, endMinutes: shift.endMinutes }];
-  const lunch = segs.some((g) => g.startMinutes < 15 * 60);
-  const dinner = segs.some((g) => g.endMinutes > 17 * 60);
-  if (lunch && dinner) return "Trưa + tối";
-  return lunch ? "Ca trưa" : "Ca tối";
 }
