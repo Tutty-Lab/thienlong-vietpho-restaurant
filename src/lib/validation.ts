@@ -15,6 +15,7 @@ import { holidaysOf, type HolidayState } from "./holidays";
 import { resolveDay, type OverrideMap, type WorkHoursConfig } from "./workHours";
 import { vietphoPeakIntervals } from "./vietphoDemand";
 import { isEmployeeFixedDayOff } from "./fixedDaysOff";
+import { worksDinner, worksLunch } from "./shiftMeals";
 
 export type ValidationError = {
   employeeId?: string;
@@ -234,6 +235,16 @@ export function validateSchedule(
               if (last && last[1] === t) last[1] = t + 30;
               else ranges.push([t, t + 30]);
             }
+          }
+          // Buổi tối luôn ít nhất bằng buổi trưa (cùng cách đếm với bảng thống kê).
+          const lunch = roleShifts.filter(worksLunch).length;
+          const dinner = roleShifts.filter(worksDinner).length;
+          if (dinner < lunch) {
+            const label = role === "KITCHEN" ? "Bếp" : "Bồi";
+            errors.push({
+              date,
+              message: `Ngày ${date}: ${label} tối (${dinner}) ít hơn trưa (${lunch}).`,
+            });
           }
           if (ranges.length > 0) {
             const label = role === "KITCHEN" ? "Bếp" : "Bồi";

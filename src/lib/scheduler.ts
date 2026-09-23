@@ -51,6 +51,7 @@ import {
   type WorkHoursConfig,
 } from "./workHours";
 import { holidaysOf, type HolidayState } from "./holidays";
+import { DINNER_START_MINUTES, LUNCH_END_MINUTES, worksDinner, worksLunch } from "./shiftMeals";
 import {
   clipDemandIntervals,
   demandCoverageGain,
@@ -2210,6 +2211,70 @@ function repairRoleGaps(state: SchedulerState): boolean {
         }
         if (!fixed) break; // niemand verfügbar – bleibt als Warnung sichtbar
       }
+
+      // Harte Regel „Abend ≥ Mittag" je Rolle. Gibt es nur kurze Einsätze
+      // (z.B. Tag ohne Vollzeit-Bồi), übernimmt EINE Person den ganzen
+      // Mittag am Stück (≤ 6 h) und eine andere reine Mittagsschicht wandert
+      // auf den Abend. Die Mehrminuten kommen von eigenen Schichten an anderen Tagen.
+      const lunchOnlyOf = (list: Shift[]) =>
+        list.filter((sh) => worksLunch(sh) && !worksDinner(sh) && !(sh.segments && sh.segments.length > 1));
+      const lunchEnd = Math.min(LUNCH_END_MINUTES, day.blocks[0].endMinutes);
+      const lunchStart = day.blocks[0].startMinutes;
+      const lastBlock = day.blocks[day.blocks.length - 1];
+      for (let guard = 0; guard < 3; guard++) {
+        const roleShifts = state.shifts.filter((sh) => sh.date === date && roleOf(sh) === role);
+        const lunch = roleShifts.filter(worksLunch).length;
+        const dinner = roleShifts.filter(worksDinner).length;
+        if (dinner >= lunch) break;
+        const gapsBefore = roleGapsOn(date, role);
+        let done = false;
+        for (const a of lunchOnlyOf(roleShifts)) {
+          if (done) break;
+          const ea = state.employeesById.get(a.employeeId)!;
+          const whole = Math.min(lunchEnd - lunchStart, GAP_SHIFT_MAX);
+          const aNew: Shift = {
+            ...a,
+            startMinutes: lunchStart,
+            endMinutes: lunchStart + whole,
+            paidMinutes: whole,
+            pauseMinutes: 0,
+            segments: undefined,
+            shiftType: "CUSTOM",
+          };
+          const extra = whole - a.paidMinutes;
+          for (const b of lunchOnlyOf(roleShifts)) {
+            if (b === a || done) continue;
+            const len = b.endMinutes - b.startMinutes;
+            // Auf den Abend: Beginn so, dass die Schicht zum Schluss endet,
+            // sonst ab 17:00 – der Feinschliff legt sie danach passend.
+            const start = Math.max(lastBlock.startMinutes, Math.min(DINNER_START_MINUTES, lastBlock.endMinutes - len));
+            if (start + len > lastBlock.endMinutes) continue;
+            const bNew: Shift = { ...b, startMinutes: start, endMinutes: start + len };
+            const trial = roleShifts.map((x) => (x === a ? aNew : x === b ? bNew : x));
+            if (trial.filter(worksDinner).length < trial.filter(worksLunch).length) continue;
+            // Lücken dürfen nicht mehr werden.
+            removeShift(state, a);
+            removeShift(state, b);
+            applyShift(state, aNew);
+            applyShift(state, bNew);
+            const weekCapA = weeklyCapMinutes(ea);
+            const weekUsedA = state.weekMinutes.get(ea.id)!.get(weekKeyOf(date)) ?? 0;
+            const weekFine = weekCapA === null || weekUsedA <= weekCapA + AZUBI_WEEKLY_TARGET_FLEX_HOURS * 60;
+            const ok = roleGapsOn(date, role) <= gapsBefore && weekFine &&
+              (extra <= 0 || takeFromOtherDays(ea, date, extra));
+            if (ok) {
+              done = true;
+              changed = true;
+            } else {
+              removeShift(state, aNew);
+              removeShift(state, bNew);
+              applyShift(state, a);
+              applyShift(state, b);
+            }
+          }
+        }
+        if (!done) break;
+      }
     }
   }
   return changed;
@@ -2260,7 +2325,15 @@ function optimizeThienlongPlacement(state: SchedulerState): void {
     }
 
     // Belegung einer Platzierung als Slot-Indizes (+ weicher Aufschlag).
-    type Placement = { idx: number[]; opens: boolean; penalty: number; apply: (sh: Shift) => void };
+    type Placement = {
+      idx: number[];
+      opens: boolean;
+      /** Zählt als Mittag / Abend (≥ 1 h vor 15:00 bzw. nach 17:00 – wie die Statistik). */
+      lunch: boolean;
+      dinner: boolean;
+      penalty: number;
+      apply: (sh: Shift) => void;
+    };
     const placementOf = (segs: ShiftSegment[], pause: number, split: boolean): Placement => {
       const idx: number[] = [];
       for (const g of segs) for (let t = g.startMinutes; t + SLOT <= g.endMinutes; t += SLOT) {
@@ -2270,9 +2343,13 @@ function optimizeThienlongPlacement(state: SchedulerState): void {
       let penalty = 0;
       if (split && day.blocks.length === 1) penalty += 0.3;
       for (const g of segs) if (split && g.endMinutes - g.startMinutes < MIN_SPLIT_SEGMENT_MINUTES) penalty += 0.4;
+      const minutesIn = (from: number, to: number) =>
+        segs.reduce((acc, g) => acc + Math.max(0, Math.min(g.endMinutes, to) - Math.max(g.startMinutes, from)), 0);
       return {
         idx,
         opens: segs[0].startMinutes === openMinutes,
+        lunch: minutesIn(0, LUNCH_END_MINUTES) >= 60,
+        dinner: minutesIn(DINNER_START_MINUTES, 24 * 60) >= 60,
         penalty,
         apply: (sh) => {
           sh.startMinutes = segs[0].startMinutes;
@@ -2336,9 +2413,14 @@ function optimizeThienlongPlacement(state: SchedulerState): void {
 
     const placements = new Map<Shift, Placement>(dayShifts.map((sh) => [sh, current(sh)]));
     let openers = 0;
+    // Je Rolle: wie viele arbeiten mittags / abends. Harte Regel: Abend ≥ Mittag.
+    const lunchCount = new Map<WorkRole, number>(roles.map((r) => [r, 0]));
+    const dinnerCount = new Map<WorkRole, number>(roles.map((r) => [r, 0]));
     for (const [sh, pl] of placements) {
       for (const i of pl.idx) have.get(roleOf(sh))![i] += 1;
       if (pl.opens) openers += 1;
+      if (pl.lunch) lunchCount.set(roleOf(sh), lunchCount.get(roleOf(sh))! + 1);
+      if (pl.dinner) dinnerCount.set(roleOf(sh), dinnerCount.get(roleOf(sh))! + 1);
     }
     const total = (i: number) => roles.reduce((acc, r) => acc + have.get(r)![i], 0);
     const slotCost = (role: WorkRole, i: number, count: number) =>
@@ -2358,12 +2440,16 @@ function optimizeThienlongPlacement(state: SchedulerState): void {
         const baseOpeners = openers - (cur.opens ? 1 : 0);
         const baseLunch = lunchIdx >= 0 ? total(lunchIdx) : 0;
         const baseDinner = dinnerIdx >= 0 ? total(dinnerIdx) : 0;
+        const roleLunch = lunchCount.get(role)! - (cur.lunch ? 1 : 0);
+        const roleDinner = dinnerCount.get(role)! - (cur.dinner ? 1 : 0);
         const scoreOf = (pl: Placement) => {
           let c = pl.penalty;
           for (const i of pl.idx) c += slotCost(role, i, h[i] + 1) - slotCost(role, i, h[i]);
           const inLunch = lunchIdx >= 0 && pl.idx.includes(lunchIdx) ? 1 : 0;
           const inDinner = dinnerIdx >= 0 && pl.idx.includes(dinnerIdx) ? 1 : 0;
           c += dayRuleCost(baseOpeners + (pl.opens ? 1 : 0), baseLunch + inLunch, baseDinner + inDinner);
+          // Je Rolle: abends mindestens so viele Leute wie mittags.
+          c += 400 * Math.max(0, roleLunch + (pl.lunch ? 1 : 0) - (roleDinner + (pl.dinner ? 1 : 0)));
           return c;
         };
         const candidates = candidatesFor(sh);
@@ -2380,6 +2466,8 @@ function optimizeThienlongPlacement(state: SchedulerState): void {
         }
         for (const i of best.idx) h[i] += 1;
         openers = baseOpeners + (best.opens ? 1 : 0);
+        lunchCount.set(role, roleLunch + (best.lunch ? 1 : 0));
+        dinnerCount.set(role, roleDinner + (best.dinner ? 1 : 0));
         if (best !== cur) {
           placements.set(sh, best);
           best.apply(sh);
@@ -2387,6 +2475,73 @@ function optimizeThienlongPlacement(state: SchedulerState): void {
         }
       }
       if (!improved) break;
+    }
+
+    // Harte Regel „Abend ≥ Mittag" je Rolle: lässt sie sich mit Einzelzügen
+    // nicht erfüllen, zwei Schichten derselben Rolle gemeinsam umlegen
+    // (z.B. Aushilfe von mittags auf abends + Kollegin deckt die Öffnung).
+    const setPlacement = (sh: Shift, pl: Placement) => {
+      const role = roleOf(sh);
+      const old = placements.get(sh)!;
+      for (const i of old.idx) have.get(role)![i] -= 1;
+      for (const i of pl.idx) have.get(role)![i] += 1;
+      openers += (pl.opens ? 1 : 0) - (old.opens ? 1 : 0);
+      lunchCount.set(role, lunchCount.get(role)! + (pl.lunch ? 1 : 0) - (old.lunch ? 1 : 0));
+      dinnerCount.set(role, dinnerCount.get(role)! + (pl.dinner ? 1 : 0) - (old.dinner ? 1 : 0));
+      placements.set(sh, pl);
+    };
+    const fullCost = () => {
+      let c = 0;
+      for (const role of roles) {
+        const h = have.get(role)!;
+        h.forEach((count, i) => (c += slotCost(role, i, count)));
+        c += 400 * Math.max(0, lunchCount.get(role)! - dinnerCount.get(role)!);
+      }
+      for (const pl of placements.values()) c += pl.penalty;
+      c += dayRuleCost(
+        openers,
+        lunchIdx >= 0 ? total(lunchIdx) : 0,
+        dinnerIdx >= 0 ? total(dinnerIdx) : 0,
+      );
+      return c;
+    };
+    for (const role of roles) {
+      if (dinnerCount.get(role)! >= lunchCount.get(role)!) continue;
+      const roleShifts = dayShifts.filter((sh) => roleOf(sh) === role);
+      let bestCost = fullCost() - 1e-6;
+      let bestMoves: [Shift, Placement][] | null = null;
+      for (const a of roleShifts) {
+        const aOld = placements.get(a)!;
+        if (!aOld.lunch || aOld.dinner) continue; // nur reine Mittagsschichten
+        for (const aNew of candidatesFor(a).filter((pl) => pl.dinner)) {
+          setPlacement(a, aNew);
+          const single = fullCost();
+          if (single < bestCost) {
+            bestCost = single;
+            bestMoves = [[a, aNew]];
+          }
+          for (const b of roleShifts) {
+            if (b === a) continue;
+            const bOld = placements.get(b)!;
+            for (const bNew of candidatesFor(b)) {
+              setPlacement(b, bNew);
+              const pair = fullCost();
+              if (pair < bestCost) {
+                bestCost = pair;
+                bestMoves = [[a, aNew], [b, bNew]];
+              }
+              setPlacement(b, bOld);
+            }
+          }
+          setPlacement(a, aOld);
+        }
+      }
+      if (bestMoves) {
+        for (const [sh, pl] of bestMoves) {
+          setPlacement(sh, pl);
+          pl.apply(sh);
+        }
+      }
     }
   }
 }
