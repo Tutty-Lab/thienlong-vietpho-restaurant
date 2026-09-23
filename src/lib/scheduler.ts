@@ -1973,6 +1973,26 @@ function repairRoleGaps(state: SchedulerState): boolean {
     return { ...sh, paidMinutes: paid, pauseMinutes: pause, endMinutes: sh.startMinutes + paid + pause, segments: undefined };
   };
 
+  /** Offene Slots einer Rolle an einem Tag (optional mit ersetzter Schicht). */
+  const roleGapsOn = (date: string, role: WorkRole | undefined, swap?: [Shift, Shift]): number => {
+    const day = state.dayOf(date);
+    if (day.closed || !role) return 0;
+    const list = state.shifts
+      .filter((sh) => sh.date === date && roleOf(sh) === role)
+      .map((sh) => (swap && sh === swap[0] ? swap[1] : sh));
+    let n = 0;
+    for (const b of day.blocks) {
+      for (let t = b.startMinutes; t + SLOT <= b.endMinutes; t += SLOT) {
+        if (!list.some((x) => segmentsOf(x).some((q) => q.startMinutes <= t && q.endMinutes >= t + SLOT))) n += 1;
+      }
+    }
+    return n;
+  };
+  /** Darf diese Schicht um 30 min kürzer werden, ohne dort eine Lücke zu reißen? */
+  const canShorten = (sh: Shift, e: Employee) =>
+    sh.paidMinutes - SLOT >= minPaidOf(e) &&
+    roleGapsOn(sh.date, e.workRole, [sh, shorten(sh)]) <= roleGapsOn(sh.date, e.workRole);
+
   /** Nimmt `minutes` von anderen Tagen der Person weg; false, wenn nicht genug Luft. */
   const takeFromOtherDays = (e: Employee, exceptDate: string, minutes: number): boolean => {
     const own = () => state.shifts.filter((sh) => sh.employeeId === e.id && sh.date !== exceptDate);
@@ -1982,16 +2002,26 @@ function repairRoleGaps(state: SchedulerState): boolean {
     // dort reißt das Kürzen keine neue Lücke.
     const sameRoleCount = (d: string) =>
       state.shifts.filter((sh) => sh.date === d && roleOf(sh) === e.workRole).length;
+    // Ganz oder gar nicht: reicht die Luft nicht, alles zurückdrehen.
+    const done: [Shift, Shift][] = [];
     for (let left = minutes; left > 0; left -= SLOT) {
       const longest = own()
-        .filter((sh) => sh.paidMinutes - SLOT >= minPaidOf(e))
+        .filter((sh) => canShorten(sh, e))
         .sort(
           (a, b) =>
             sameRoleCount(b.date) - sameRoleCount(a.date) || b.paidMinutes - a.paidMinutes,
         )[0];
+      if (!longest) {
+        for (const [before, after] of done.reverse()) {
+          removeShift(state, after);
+          applyShift(state, before);
+        }
+        return false;
+      }
       const next = shorten(longest);
       removeShift(state, longest);
       applyShift(state, next);
+      done.push([longest, next]);
     }
     return true;
   };
