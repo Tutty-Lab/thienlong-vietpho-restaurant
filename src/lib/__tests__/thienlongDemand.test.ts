@@ -96,7 +96,8 @@ describe("Thienlong role demand profile", () => {
     );
     expect(peakDemand).toHaveLength(2);
     expect(peakDemand[0].personMinutes).toBeGreaterThan(0);
-    expect(peakDemand[1].personMinutes).toBe(peakDemand[0].personMinutes);
+    // Abendspitze (Index 1) wiegt schwerer als die Mittagsspitze (Index 0).
+    expect(peakDemand[1].personMinutes).toBeGreaterThan(peakDemand[0].personMinutes);
   });
 
   it("prefers the shift that fills the currently uncovered role intervals", () => {

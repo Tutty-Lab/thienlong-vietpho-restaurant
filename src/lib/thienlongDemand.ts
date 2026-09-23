@@ -41,9 +41,10 @@ const MEAL_PEAKS = [
   { startMinutes: 17 * 60 + 30, endMinutes: 20 * 60 + 30 },
 ] as const;
 
-// Each meal window should absorb roughly 30% of the role's daily hours before
-// quieter edges are preferred. This is a soft placement priority only.
-const MEAL_PEAK_SHARE_OF_ROLE = 0.3;
+// Anteil der Tagesstunden je Spitze (weiche Platzierungspriorität). Der Abend
+// (Index 1) wiegt bewusst SCHWERER als der Mittag (Index 0) – das Abendgeschäft
+// ist stärker, also sollen dort mehr Bếp/Bồi liegen als mittags.
+const MEAL_PEAK_SHARES = [0.22, 0.42] as const; // [Mittag, Abend]
 
 const referenceInterval = (
   startMinutes: number,
@@ -105,17 +106,17 @@ const FRIDAY: ReferenceProfile = {
 const WEEKEND: ReferenceProfile = {
   KITCHEN: [
     referenceInterval(11 * 60 + 30, 12 * 60, 1),
-    referenceInterval(12 * 60, 15 * 60, 10), // Mittag: dicht
+    referenceInterval(12 * 60, 15 * 60, 9), // Mittag: dicht
     referenceInterval(15 * 60, 17 * 60 + 30, 3),
-    referenceInterval(17 * 60 + 30, 20 * 60, 9), // Abend: dicht
-    referenceInterval(20 * 60, 21 * 60, 2),
-    referenceInterval(21 * 60, 22 * 60, 1), // Schließung: dünn
+    referenceInterval(17 * 60 + 30, 20 * 60, 11), // Abend: am dichtesten (> Mittag)
+    referenceInterval(20 * 60, 21 * 60, 1.5),
+    referenceInterval(21 * 60, 22 * 60, 0.5), // Schließung: dünn
   ],
   SERVICE: [
     referenceInterval(11 * 60 + 30, 12 * 60, 0.5),
-    referenceInterval(12 * 60, 15 * 60, 6),
+    referenceInterval(12 * 60, 15 * 60, 5),
     referenceInterval(15 * 60, 17 * 60 + 30, 2),
-    referenceInterval(17 * 60 + 30, 20 * 60, 6),
+    referenceInterval(17 * 60 + 30, 20 * 60, 7), // Abend: mehr Bồi als mittags
     referenceInterval(20 * 60, 21 * 60, 1),
     referenceInterval(21 * 60, 22 * 60, 0.5),
   ],
@@ -177,9 +178,9 @@ export function thienlongMealPeakDemand(
 ): readonly RoleDemandInterval[] {
   const roleMinutes =
     Math.max(0, totalTargetMinutes) * thienlongRoleShare(weekday, role, isHoliday);
-  return MEAL_PEAKS.map((peak) => ({
+  return MEAL_PEAKS.map((peak, i) => ({
     ...peak,
-    personMinutes: roleMinutes * MEAL_PEAK_SHARE_OF_ROLE,
+    personMinutes: roleMinutes * MEAL_PEAK_SHARES[i],
   }));
 }
 
