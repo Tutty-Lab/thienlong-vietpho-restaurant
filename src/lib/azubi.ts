@@ -5,14 +5,13 @@
 // ============================================================================
 
 import {
-  AZUBI_HOURS_OUT_OF_TERM,
   AZUBI_MONTHLY_WARNING_HOURS,
   type AzubiConfig,
   type Employee,
 } from "../types";
 
 /** Standard aus der bisherigen Vorgabe 38,5 h/Woche mal vier Wochen. */
-export const DEFAULT_AZUBI_MONTHLY_HOURS_OUT_OF_TERM = AZUBI_HOURS_OUT_OF_TERM * 4;
+export const DEFAULT_AZUBI_MONTHLY_HOURS_OUT_OF_TERM = 38.5 * 4;
 
 export const DEFAULT_AZUBI_CONFIG: AzubiConfig = {
   inSchoolTerm: true,
@@ -72,7 +71,7 @@ function monthlyHoursFrom(source: AzubiConfig): number {
   }
   if (Number.isFinite(source.weeklyHoursOutOfTerm)) {
     return normalizeHours(
-      (source.weeklyHoursOutOfTerm ?? AZUBI_HOURS_OUT_OF_TERM) * 4,
+      (source.weeklyHoursOutOfTerm ?? 38.5) * 4,
       DEFAULT_AZUBI_MONTHLY_HOURS_OUT_OF_TERM,
     );
   }

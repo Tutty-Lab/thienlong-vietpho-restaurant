@@ -16,11 +16,11 @@ const azubi = (extra: Partial<NonNullable<Employee["azubi"]>> = {}): Employee =>
 });
 
 describe("Azubi hours for a single work month", () => {
-  it("September 2026 only fits 168 h with Mon+Wed off (4 full weeks + one Tuesday)", () => {
+  it("September 2026 only fits 170 h with Mon+Wed off (4 full weeks × 40 h + one Tuesday)", () => {
     const max = azubiMonthCapacityMinutes(azubi(), {
       year: 2026, month: 9, workHours: DEFAULT_WORK_HOURS, holidayState: "BW",
     });
-    expect(max / 60).toBe(168);
+    expect(max / 60).toBe(170);
     // August fits 174 h.
     const aug = azubiMonthCapacityMinutes(azubi(), {
       year: 2026, month: 8, workHours: DEFAULT_WORK_HOURS, holidayState: "BW",
@@ -40,12 +40,12 @@ describe("Azubi hours for a single work month", () => {
     expect(azubiMonthlyHoursForMonth(cfg, 2026, 9)).toBe(174);
   });
 
-  it("with 168 h set for September the month can be generated", () => {
-    const e = { ...azubi({ workMonthHoursByMonth: { "2026-09": 168 } }), targetMinutes: 168 * 60 };
+  it("with 170 h set for September the month can be generated", () => {
+    const e = { ...azubi({ workMonthHoursByMonth: { "2026-09": 170 } }), targetMinutes: 170 * 60 };
     const shifts = generateSchedule({
       year: 2026, month: 9, storeId: "thienlong", workHours: DEFAULT_WORK_HOURS, holidayState: "BW",
       employees: [e],
     });
-    expect(shifts.reduce((a, s) => a + s.paidMinutes, 0)).toBe(168 * 60);
+    expect(shifts.reduce((a, s) => a + s.paidMinutes, 0)).toBe(170 * 60);
   });
 });

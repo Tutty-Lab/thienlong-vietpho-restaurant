@@ -383,23 +383,23 @@ describe("Azubi ngoài kỳ học", () => {
     }
   });
 
-  it("validation chỉ báo lỗi khi vượt cả biên linh hoạt 1h để hoàn tất định mức", () => {
+  it("validation: tối đa 40h/tuần, vượt là báo lỗi", () => {
     const employee = employeeWithConfig({
       inSchoolTerm: false,
       schoolDays: [],
-      monthlyHoursOutOfTerm: 40,
+      monthlyHoursOutOfTerm: 44,
     });
-    const result = validateSchedule(
-      [employee],
-      [
-        manualShift(employee.id, "week-1", "2026-08-03", 10 * 60),
-        manualShift(employee.id, "week-2", "2026-08-04", 10 * 60),
-        manualShift(employee.id, "week-3", "2026-08-05", 10 * 60),
-        manualShift(employee.id, "week-4", "2026-08-06", 10 * 60),
-      ],
-    );
+    const week = [
+      manualShift(employee.id, "d1", "2026-08-03", 10 * 60),
+      manualShift(employee.id, "d2", "2026-08-04", 10 * 60),
+      manualShift(employee.id, "d3", "2026-08-05", 10 * 60),
+      manualShift(employee.id, "d4", "2026-08-06", 10 * 60),
+    ];
+    const weekError = (shifts: typeof week) =>
+      validateSchedule([employee], shifts).errors.some((error) => error.message.includes("vượt mức 40h"));
 
-    expect(result.errors.some((error) => error.message.includes("39.5h"))).toBe(true);
+    expect(weekError(week)).toBe(false); // đúng 40h: được
+    expect(weekError([...week, manualShift(employee.id, "d5", "2026-08-07", 4 * 60)])).toBe(true);
   });
 });
 

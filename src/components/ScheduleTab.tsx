@@ -1,5 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { RoleBadge } from "./RoleBadge";
+import { AZUBI_HOURS_OUT_OF_TERM, AZUBI_WEEKLY_TARGET_FLEX_HOURS } from "../types";
+
+const AZUBI_WEEKLY_CAP_HOURS = AZUBI_HOURS_OUT_OF_TERM + AZUBI_WEEKLY_TARGET_FLEX_HOURS;
 import { SavedSchedulesButton } from "./SavedSchedules";
 import { worksDinner, worksLunch } from "../lib/shiftMeals";
 import type { UseScheduleReturn } from "../hooks/useSchedule";
@@ -159,7 +162,7 @@ export function ScheduleTab({ store }: { store: UseScheduleReturn }) {
             <div key={employee.id} className="flex flex-wrap items-center gap-2">
               <span className="flex-1 min-w-[12rem]">
                 <b>{employee.name}</b>: tháng {schedule.month}/{schedule.year} tối đa chỉ xếp được{" "}
-                <b>{maxMinutes / 60}h</b> (giới hạn Azubi 39,5h/tuần, ngày nghỉ cố định), không đủ{" "}
+                <b>{maxMinutes / 60}h</b> (giới hạn Azubi {AZUBI_WEEKLY_CAP_HOURS}h/tuần, ngày nghỉ cố định), không đủ{" "}
                 {employee.targetMinutes / 60}h.
               </span>
               <button

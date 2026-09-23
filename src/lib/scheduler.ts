@@ -2630,7 +2630,7 @@ function buildUnmetMessage(
     );
   }
 
-  // Azubi: Wochendecke (38,5 h + 1 h Reserve) × Wochen des Monats begrenzt das Soll.
+  // Azubi: Wochendecke (40 h) × Wochen des Monats begrenzt das Soll.
   const weekCap = Math.round((AZUBI_HOURS_OUT_OF_TERM + AZUBI_WEEKLY_TARGET_FLEX_HOURS) * 60);
   const azubiHints = unmet
     .filter((e) => e.employmentType === "AZUBI")

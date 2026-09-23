@@ -55,10 +55,10 @@ export type AzubiConfig = {
 
 /** In der Schulzeit wird der Azubi nicht zur Arbeit eingeteilt. */
 export const AZUBI_HOURS_IN_TERM = 0;
-/** Woechentliche Planungsgrenze ausserhalb der Schulzeit. */
-export const AZUBI_HOURS_OUT_OF_TERM = 38.5;
-/** Small target-completion buffer when calendar edges leave only long shifts. */
-export const AZUBI_WEEKLY_TARGET_FLEX_HOURS = 1;
+/** Woechentliche Obergrenze fuer Azubis ausserhalb der Schulzeit (Chef, Sept 2026: 40 h). */
+export const AZUBI_HOURS_OUT_OF_TERM = 40;
+/** Keine Reserve mehr: 40 h/Woche ist die harte Grenze. */
+export const AZUBI_WEEKLY_TARGET_FLEX_HOURS = 0;
 /** Ab diesem Monatssoll wird gewarnt, die Eingabe bleibt aber wirksam. */
 export const AZUBI_MONTHLY_WARNING_HOURS = 174;
 
