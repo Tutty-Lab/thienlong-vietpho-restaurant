@@ -136,6 +136,21 @@ export type Schedule = {
   dateOverrides: DateOverride[];
   employees: Employee[];
   shifts: Shift[];
+  /**
+   * Gespeicherte Pläne ANDERER Monate, Schlüssel "yyyy-MM". Beim Monatswechsel
+   * wird der aktuelle Plan hier abgelegt und der des Zielmonats (falls
+   * vorhanden) wieder geladen – so geht kein erzeugter Monat verloren.
+   */
+  archive?: Record<string, MonthArchive>;
+};
+
+/** Ein gespeicherter Monatsplan. */
+export type MonthArchive = {
+  shifts: Shift[];
+  /** Ursprünglich generierter Plan (für „Zurücksetzen"). */
+  originalShifts: Shift[];
+  /** ISO-Zeitpunkt der Ablage. */
+  savedAt: string;
 };
 
 /** Ein einzelnes zu verplanendes Schicht-Token (Ergebnis von splitTargetHours). */

@@ -2630,6 +2630,28 @@ function buildUnmetMessage(
     );
   }
 
+  // Azubi: Wochendecke (38,5 h + 1 h Reserve) × Wochen des Monats begrenzt das Soll.
+  const azubiHints = unmet
+    .filter((e) => e.employmentType === "AZUBI")
+    .map((e) => {
+      const perWeek = new Map<string, number>();
+      for (const d of dates) {
+        if (dayOf(d).closed || !matchesEmployeeDayRules(state, e, d)) continue;
+        const k = weekKeyOf(d);
+        perWeek.set(k, (perWeek.get(k) ?? 0) + Math.min(MAX_DAILY_MINUTES, maxPaidForDay(dayOf(d))));
+      }
+      const weekCap = (weeklyCapMinutes(e) ?? 0) + AZUBI_WEEKLY_TARGET_FLEX_HOURS * 60;
+      let max = 0;
+      for (const minutes of perWeek.values()) max += Math.min(weekCap, minutes);
+      return max < e.targetMinutes
+        ? `${e.name} tháng này tối đa ${max / 60}h (giới hạn ${weekCap / 60}h/tuần) – hãy đặt giờ riêng cho tháng này ở tab Azubi (≤ ${max / 60}h).`
+        : "";
+    })
+    .filter(Boolean);
+  if (azubiHints.length > 0) {
+    return `Không xếp đủ định mức: ${missing}. ${azubiHints.join(" ")}`;
+  }
+
   return (
     `Không xếp đủ định mức: ${missing}. ` +
     "Hãy kiểm tra ngày nghỉ cố định hoặc giờ mở cửa của tháng này."

@@ -36,7 +36,20 @@ function localIsoDate(date: Date): string {
 }
 
 export function ScheduleTab({ store }: { store: UseScheduleReturn }) {
-  const { schedule, validation, readiness, generate, genError } = store;
+  const { schedule, validation, readiness, generate, genError, savedMonths, updateMeta } = store;
+
+  // Tháng này đã có lịch thì hỏi trước khi tạo lại – tránh mất lịch đã lưu.
+  const generateWithConfirm = () => {
+    if (
+      schedule.shifts.length > 0 &&
+      !window.confirm(
+        `${monthLabel(schedule.year, schedule.month)} đã có lịch. Tạo lại sẽ thay lịch hiện tại — tiếp tục?`,
+      )
+    ) {
+      return;
+    }
+    generate();
+  };
   const dates = useMemo(
     () => datesOfMonth(schedule.year, schedule.month),
     [schedule.year, schedule.month],
@@ -127,7 +140,7 @@ export function ScheduleTab({ store }: { store: UseScheduleReturn }) {
       {/* Thanh thao tác */}
       <div className="flex flex-wrap items-center gap-2 mb-3">
         <button
-          onClick={generate}
+          onClick={generateWithConfirm}
           disabled={!readiness.ready}
           className="rounded bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 active:bg-slate-800 disabled:opacity-40"
         >
@@ -135,6 +148,28 @@ export function ScheduleTab({ store }: { store: UseScheduleReturn }) {
         </button>
         <span className="ml-auto text-sm text-slate-500">{monthLabel(schedule.year, schedule.month)}</span>
       </div>
+
+      {/* Các tháng đã lưu – bấm để mở lại lịch của tháng đó */}
+      {savedMonths.length > 0 && (
+        <div className="mb-3 flex flex-wrap items-center gap-1.5">
+          <span className="text-xs text-slate-500 mr-1">Các tháng đã lưu:</span>
+          {savedMonths.map((m) => (
+            <button
+              key={m.key}
+              onClick={() => updateMeta({ year: m.year, month: m.month })}
+              disabled={m.current}
+              title={`${m.shiftCount} ca · ${minutesToShortHours(m.totalMinutes)}`}
+              className={`rounded-full border px-3 py-1 text-xs ${
+                m.current
+                  ? "border-slate-900 bg-slate-900 text-white"
+                  : "border-slate-200 bg-white text-slate-700 hover:border-slate-400"
+              }`}
+            >
+              {m.month}/{m.year}
+            </button>
+          ))}
+        </div>
+      )}
 
       {!readiness.ready && (
         <div className="mb-3 rounded bg-amber-50 border border-amber-200 text-amber-800 text-sm px-3 py-2">

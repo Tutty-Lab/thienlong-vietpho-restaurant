@@ -28,6 +28,7 @@ import {
   normalizeSurchargeConfig,
 } from "../lib/zuschlaege";
 import { isEmployeeFixedDayOff, normalizedFixedDaysOff } from "../lib/fixedDaysOff";
+import { listSavedMonths, switchMonth } from "../lib/monthArchive";
 
 function emptySchedule(store: StoreConfig): Schedule {
   const now = new Date();
@@ -91,6 +92,7 @@ function normalizeSchedule(raw: Schedule | undefined, store: StoreConfig): Sched
       normalizeEmployee(employee, year, month),
     ),
     shifts: raw.shifts ?? [],
+    archive: raw.archive && typeof raw.archive === "object" ? raw.archive : {},
   };
 }
 
@@ -222,8 +224,24 @@ export function useSchedule() {
 
   // ----- Firma / Monat / Öffnungszeiten -----
   const updateMeta = useCallback((patch: Partial<Schedule>) => {
-    setSchedule((s) => ({ ...s, ...patch }));
+    const { schedule: s, originalShifts: original } = latest.current;
+    const nextYear = patch.year ?? s.year;
+    const nextMonth = patch.month ?? s.month;
+    if (nextYear === s.year && nextMonth === s.month) {
+      setSchedule((cur) => ({ ...cur, ...patch }));
+      return;
+    }
+    // Monatswechsel: aktuellen Plan ablegen, gespeicherten Plan des Zielmonats laden.
+    const next = switchMonth(s, original, nextYear, nextMonth);
+    const schedulePatched = { ...next.schedule, ...patch };
+    latest.current = { schedule: schedulePatched, originalShifts: next.originalShifts };
+    setSchedule(schedulePatched);
+    setOriginalShifts(next.originalShifts);
+    setGenError(null);
   }, []);
+
+  /** Alle Monate mit gespeichertem Plan (inkl. des aktuell geöffneten). */
+  const savedMonths = useMemo(() => listSavedMonths(schedule), [schedule]);
 
   // ----- Mitarbeiter -----
   const addEmployee = useCallback(
@@ -412,6 +430,7 @@ export function useSchedule() {
     genError,
     hasOriginal: originalShifts.length > 0,
     updateMeta,
+    savedMonths,
     addEmployee,
     updateEmployee,
     removeEmployee,
