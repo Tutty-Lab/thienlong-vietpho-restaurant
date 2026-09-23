@@ -120,3 +120,37 @@ describe("Thienlong with the real team settings", () => {
     }
   });
 });
+
+describe("standard shifts anchored on the peaks", () => {
+  it("keeps almost every shift piece standard (≥ 3 h covers 11–14 or 17–20, shorter lies inside)", () => {
+    const holidaysSet = holidaysOf(2026, "BW");
+    let standard = 0;
+    let all = 0;
+    for (const s of shifts) {
+      const day = resolveDay(DEFAULT_WORK_HOURS, s.date, holidaysSet, {});
+      const open = day.blocks[0].startMinutes;
+      const peaks = [[Math.max(11 * 60, open), 14 * 60], [17 * 60, 20 * 60]];
+      for (const g of s.segments ?? [s]) {
+        all += 1;
+        const len = g.endMinutes - g.startMinutes;
+        const ok = len >= 180
+          ? peaks.some(([a, b]) => g.startMinutes <= a && g.endMinutes >= b)
+          : peaks.some(([a, b]) => g.startMinutes >= a && g.endMinutes <= b);
+        if (ok) standard += 1;
+      }
+    }
+    expect(standard / all).toBeGreaterThanOrEqual(0.95);
+  });
+
+  it("gives the same plan for the same input (deterministic)", () => {
+    const again = generateSchedule({
+      year,
+      month,
+      storeId: "thienlong",
+      workHours: DEFAULT_WORK_HOURS,
+      employees: team,
+      holidayState: "BW",
+    });
+    expect(again).toEqual(shifts);
+  });
+});

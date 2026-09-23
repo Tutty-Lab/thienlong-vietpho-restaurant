@@ -2283,7 +2283,208 @@ function repairRoleGaps(state: SchedulerState): boolean {
   return changed;
 }
 
-function optimizeThienlongPlacement(state: SchedulerState): void {
+/** Stoßzeiten eines Tages (Mittag ab Öffnung, spätestens 11:00 – 14:00; Abend 17–20). */
+function dayPeaks(day: ResolvedDay): { startMinutes: number; endMinutes: number }[] {
+  if (day.closed || day.blocks.length === 0) return [];
+  return thienlongMealPeakIntervals()
+    .map((p) => ({
+      startMinutes: Math.max(p.startMinutes, day.blocks[0].startMinutes),
+      endMinutes: Math.min(p.endMinutes, day.blocks[day.blocks.length - 1].endMinutes),
+    }))
+    .filter((p) => p.endMinutes > p.startMinutes);
+}
+
+/** „Ca chuẩn": Stück ≥ 3 h umfasst eine Stoßzeit, kürzeres liegt ganz in einer. */
+function isStandardPiece(
+  g: { startMinutes: number; endMinutes: number },
+  peaks: readonly { startMinutes: number; endMinutes: number }[],
+): boolean {
+  const len = g.endMinutes - g.startMinutes;
+  return len >= 3 * 60
+    ? peaks.some((p) => g.startMinutes <= p.startMinutes && g.endMinutes >= p.endMinutes)
+    : peaks.some((p) => g.startMinutes >= p.startMinutes && g.endMinutes <= p.endMinutes);
+}
+
+/** Nur Notbremse für sehr langsame Geräte; normal endet die Suche vorher. */
+const REBALANCE_BUDGET_MS = 5000;
+
+/**
+ * „Đổi giờ chéo": Mit gleich langen Tagesschichten lassen sich Öffnen, 14–15 h,
+ * 16:30 und Schließen oft nur mit krummen Stücken abdecken (10:30–13:30,
+ * 13:00–15:00 …). Hier tauschen zwei Kollegen derselben Rolle Minuten über zwei
+ * Tage: A an Tag X +d und an Tag Y −d, B umgekehrt. Monatssoll jeder Person und
+ * Stunden jedes Tages bleiben gleich; übernommen wird nur, was mehr „ca chuẩn"
+ * ergibt, ohne neue Lücken, ohne „Abend < Mittag" und innerhalb der Grenzen.
+ */
+function rebalanceForStandardShifts(state: SchedulerState): void {
+  if (!state.isThienlong) return;
+  const SLOT = 30;
+  // Feste Obergrenze => gleiche Eingabe, gleicher Plan (typisch 350–500 Versuche).
+  const MAX_TRIALS = 800;
+  // Zeit-Notbremse (normalerweise nie erreicht).
+  const deadline = Date.now() + REBALANCE_BUDGET_MS;
+  const outOfTime = () => Date.now() > deadline;
+  const segmentsOf = (sh: Shift) =>
+    sh.segments ?? [{ startMinutes: sh.startMinutes, endMinutes: sh.endMinutes }];
+  const roleOf = (sh: Shift) => state.employeesById.get(sh.employeeId)?.workRole;
+  const minPaid = (e: Employee) =>
+    e.employmentType === "TEILZEIT" ? 2 * 60 : e.employmentType === "AZUBI" ? 3 * 60 : 5 * 60;
+  const maxPaid = (e: Employee) => (e.employmentType === "TEILZEIT" ? 4 * 60 : MAX_DAILY_MINUTES);
+
+  /** Qualität eines Tages: Lücken ≫ „Abend < Mittag" ≫ krumme Stücke. */
+  const dayScore = (date: string): number => {
+    const day = state.dayOf(date);
+    if (day.closed) return 0;
+    const peaks = dayPeaks(day);
+    const shifts = state.shifts.filter((sh) => sh.date === date);
+    let score = 0;
+    for (const role of ["KITCHEN", "SERVICE"] as const) {
+      const rs = shifts.filter((sh) => roleOf(sh) === role);
+      if (rs.length === 0) continue;
+      for (const b of day.blocks) {
+        for (let t = b.startMinutes; t + SLOT <= b.endMinutes; t += SLOT) {
+          if (!rs.some((x) => segmentsOf(x).some((g) => g.startMinutes <= t && g.endMinutes >= t + SLOT))) {
+            score += 1000;
+          }
+        }
+      }
+      score += 400 * Math.max(0, rs.filter(worksLunch).length - rs.filter(worksDinner).length);
+    }
+    for (const sh of shifts) for (const g of segmentsOf(sh)) if (!isStandardPiece(g, peaks)) score += 10;
+    return score;
+  };
+
+  /** Neue Länge, grob platziert (der Feinschliff legt sie danach richtig). */
+  const resized = (sh: Shift, paid: number): Shift | null => {
+    const day = state.dayOf(sh.date);
+    const delta = paid - sh.paidMinutes;
+    if (sh.segments && sh.segments.length > 1) {
+      const segs = sh.segments.map((g) => ({ ...g }));
+      // Längeres Stück ändern; beim Verlängern notfalls nach vorn ausweichen.
+      const i = segs.reduce((best, g, k) =>
+        g.endMinutes - g.startMinutes > segs[best].endMinutes - segs[best].startMinutes ? k : best, 0);
+      const block = day.blocks.find((b) => b.startMinutes <= segs[i].startMinutes && segs[i].endMinutes <= b.endMinutes);
+      if (!block) return null;
+      segs[i].endMinutes += delta;
+      if (segs[i].endMinutes > block.endMinutes) {
+        segs[i].startMinutes -= segs[i].endMinutes - block.endMinutes;
+        segs[i].endMinutes = block.endMinutes;
+      }
+      if (segs[i].startMinutes < block.startMinutes) return null;
+      if (segs[i].endMinutes - segs[i].startMinutes < 2 * 60) return null;
+      if (segs[i].endMinutes - segs[i].startMinutes > 6 * 60) return null;
+      return { ...sh, segments: segs, paidMinutes: paid, pauseMinutes: 0,
+        startMinutes: segs[0].startMinutes, endMinutes: segs[segs.length - 1].endMinutes };
+    }
+    const pause = calculatePause(paid);
+    const block = day.blocks.find((b) => b.startMinutes <= sh.startMinutes && sh.endMinutes <= b.endMinutes);
+    if (!block) return null;
+    let start = sh.startMinutes;
+    let end = start + paid + pause;
+    if (end > block.endMinutes) {
+      start -= end - block.endMinutes;
+      end = block.endMinutes;
+    }
+    if (start < block.startMinutes) return null;
+    return { ...sh, startMinutes: start, endMinutes: end, paidMinutes: paid, pauseMinutes: pause, segments: undefined };
+  };
+
+  const snapshot = (dates: string[]) =>
+    state.shifts.filter((sh) => dates.includes(sh.date)).map((sh) => ({ ...sh, segments: sh.segments?.map((g) => ({ ...g })) }));
+  const restore = (dates: string[], saved: Shift[]) => {
+    for (const sh of state.shifts.filter((x) => dates.includes(x.date))) removeShift(state, sh);
+    for (const sh of saved) applyShift(state, sh);
+  };
+  const weekOk = (e: Employee) => {
+    const cap = weeklyCapMinutes(e);
+    if (cap === null) return true;
+    const limit = cap + AZUBI_WEEKLY_TARGET_FLEX_HOURS * 60;
+    for (const minutes of state.weekMinutes.get(e.id)!.values()) if (minutes > limit) return false;
+    return true;
+  };
+
+  let trials = 0;
+  const touched = new Set<string>();
+  const finish = () => {
+    // Geänderte Tage einmal komplett nachoptimieren (alle Schichten beweglich).
+    if (touched.size > 0) optimizeThienlongPlacement(state, touched);
+  };
+  for (let pass = 0; pass < 2; pass++) {
+    let improvedAny = false;
+    for (const x of state.dates) {
+      if (trials >= MAX_TRIALS || outOfTime()) return finish();
+      const dayX = state.dayOf(x);
+      if (dayX.closed) continue;
+      const peaksX = dayPeaks(dayX);
+      for (const role of ["KITCHEN", "SERVICE"] as const) {
+        const onX = () => state.shifts.filter((sh) => sh.date === x && roleOf(sh) === role);
+        if (!onX().some((sh) => segmentsOf(sh).some((g) => !isStandardPiece(g, peaksX)))) continue;
+        let done = false;
+        // Nach Personen iterieren (Schichtobjekte werden bei Rücknahme ersetzt).
+        const people = [...new Set(onX().map((sh) => sh.employeeId))];
+        for (const aId of people) {
+          if (done || trials >= MAX_TRIALS || outOfTime()) break;
+          for (const bId of people) {
+            if (done || aId === bId || trials >= MAX_TRIALS || outOfTime()) continue;
+            const ea = state.employeesById.get(aId)!;
+            const eb = state.employeesById.get(bId)!;
+            // Tage, an denen beide arbeiten (Gegenbuchung), nächstgelegene zuerst.
+            const ys = state.dates
+              .filter((y) => y !== x &&
+                state.shifts.some((sh) => sh.date === y && sh.employeeId === ea.id) &&
+                state.shifts.some((sh) => sh.date === y && sh.employeeId === eb.id))
+              .sort((p, q) => Math.abs(Date.parse(p) - Date.parse(x)) - Math.abs(Date.parse(q) - Date.parse(x)))
+              .slice(0, 6);
+            for (const d of [SLOT, 2 * SLOT, 3 * SLOT, 4 * SLOT]) {
+              if (done || trials >= MAX_TRIALS || outOfTime()) break;
+              for (const y of ys) {
+                if (done || trials >= MAX_TRIALS || outOfTime()) break;
+                const ax = state.shifts.find((sh) => sh.date === x && sh.employeeId === ea.id)!;
+                const bx = state.shifts.find((sh) => sh.date === x && sh.employeeId === eb.id)!;
+                const ay = state.shifts.find((sh) => sh.date === y && sh.employeeId === ea.id)!;
+                const by = state.shifts.find((sh) => sh.date === y && sh.employeeId === eb.id)!;
+                if (ax.paidMinutes + d > maxPaid(ea) || bx.paidMinutes - d < minPaid(eb)) continue;
+                if (ay.paidMinutes - d < minPaid(ea) || by.paidMinutes + d > maxPaid(eb)) continue;
+                const nAx = resized(ax, ax.paidMinutes + d);
+                const nBx = resized(bx, bx.paidMinutes - d);
+                const nAy = resized(ay, ay.paidMinutes - d);
+                const nBy = resized(by, by.paidMinutes + d);
+                if (!nAx || !nBx || !nAy || !nBy) continue;
+                trials += 1;
+                const dates = [x, y];
+                const before = dayScore(x) + dayScore(y);
+                const saved = snapshot(dates);
+                for (const [o, n] of [[ax, nAx], [bx, nBx], [ay, nAy], [by, nBy]] as const) {
+                  removeShift(state, o);
+                  applyShift(state, n);
+                }
+                optimizeThienlongPlacement(state, new Set(dates), new Set([ax.id, bx.id, ay.id, by.id]));
+                const after = dayScore(x) + dayScore(y);
+                if (after < before && weekOk(ea) && weekOk(eb)) {
+                  done = true;
+                  improvedAny = true;
+                  touched.add(x);
+                  touched.add(y);
+                } else {
+                  restore(dates, saved);
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+    if (!improvedAny) break;
+  }
+  finish();
+}
+
+function optimizeThienlongPlacement(
+  state: SchedulerState,
+  onlyDates?: ReadonlySet<string>,
+  /** Nur diese Schichten umlegen (die übrigen bleiben fest) – schneller. */
+  onlyShiftIds?: ReadonlySet<string>,
+): void {
   if (!state.isThienlong) return;
   const SLOT = 30;
   const MIN_PIECE = 2 * 60;
@@ -2293,6 +2494,7 @@ function optimizeThienlongPlacement(state: SchedulerState): void {
     sh.segments ?? [{ startMinutes: sh.startMinutes, endMinutes: sh.endMinutes }];
 
   for (const date of state.dates) {
+    if (onlyDates && !onlyDates.has(date)) continue;
     const day = state.dayOf(date);
     if (day.closed || day.blocks.length === 0) continue;
     const dayShifts = state.shifts.filter((sh) => sh.date === date);
@@ -2452,6 +2654,7 @@ function optimizeThienlongPlacement(state: SchedulerState): void {
     for (let pass = 0; pass < 6; pass++) {
       let improved = false;
       for (const sh of dayShifts) {
+        if (onlyShiftIds && !onlyShiftIds.has(sh.id)) continue;
         const role = roleOf(sh);
         const h = have.get(role)!;
         const cur = placements.get(sh)!;
@@ -3152,6 +3355,8 @@ export function generateSchedule(input: GenerateInput): Shift[] {
   for (let round = 0; round < 6 && repairRoleGaps(state); round++) {
     optimizeThienlongPlacement(state);
   }
+  // Längen zweier Kollegen über zwei Tage tauschen → mehr „ca chuẩn".
+  rebalanceForStandardShifts(state);
 
   // Stabil sortieren: nach Datum, dann Startzeit, dann Mitarbeiter.
   state.shifts.sort(
