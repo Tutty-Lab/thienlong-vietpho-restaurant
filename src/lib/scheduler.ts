@@ -1933,6 +1933,9 @@ function repairContinuousCoverage(state: SchedulerState): void {
  * überbesetzten Nachmittags. Kurze Stücke/Teilung sind nur weiche Regeln
  * (kleiner Aufschlag): Stück 2–6 h, mind. 1 h Pause dazwischen.
  */
+/** Aufschlag für ein Schichtstück, das keine Stoßzeit sauber abdeckt. */
+const NON_STANDARD_PIECE_PENALTY = 150;
+
 /** Stoßzeit-Fenster für Teilzeit/Minijob: Mittag bzw. Abend. */
 const TEILZEIT_PEAK_WINDOWS = [
   { startMinutes: 10 * 60 + 30, endMinutes: 15 * 60 },
@@ -2300,6 +2303,13 @@ function optimizeThienlongPlacement(state: SchedulerState): void {
     const slots: number[] = [];
     for (const b of day.blocks) for (let t = b.startMinutes; t + SLOT <= b.endMinutes; t += SLOT) slots.push(t);
     const slotIndex = new Map(slots.map((t, i) => [t, i]));
+    // Stoßzeiten des Tages (Mittag 11–14, Abend 17–20), auf die Öffnungszeit geschnitten.
+    const peaks = thienlongMealPeakIntervals()
+      .map((p) => ({
+        startMinutes: Math.max(p.startMinutes, day.blocks[0].startMinutes),
+        endMinutes: Math.min(p.endMinutes, day.blocks[day.blocks.length - 1].endMinutes),
+      }))
+      .filter((p) => p.endMinutes > p.startMinutes);
     const lunchIdx = slots.findIndex((t) => t <= 13 * 60 && t + SLOT > 13 * 60);
     const dinnerIdx = slots.findIndex((t) => t <= 19 * 60 && t + SLOT > 19 * 60);
     const blockOf = (start: number, end: number) =>
@@ -2343,6 +2353,16 @@ function optimizeThienlongPlacement(state: SchedulerState): void {
       let penalty = 0;
       if (split && day.blocks.length === 1) penalty += 0.3;
       for (const g of segs) if (split && g.endMinutes - g.startMinutes < MIN_SPLIT_SEGMENT_MINUTES) penalty += 0.4;
+      // „Ca chuẩn": jedes Stück ≥ 3 h umfasst eine Stoßzeit komplett, kürzere
+      // Stücke liegen ganz in einer Stoßzeit. Sonst hoher Aufschlag – erlaubt
+      // nur, wenn es anders Lücken oder „Abend < Mittag" gäbe.
+      for (const g of segs) {
+        const len = g.endMinutes - g.startMinutes;
+        const standard = len >= 3 * 60
+          ? peaks.some((p) => g.startMinutes <= p.startMinutes && g.endMinutes >= p.endMinutes)
+          : peaks.some((p) => g.startMinutes >= p.startMinutes && g.endMinutes <= p.endMinutes);
+        if (!standard) penalty += NON_STANDARD_PIECE_PENALTY;
+      }
       const minutesIn = (from: number, to: number) =>
         segs.reduce((acc, g) => acc + Math.max(0, Math.min(g.endMinutes, to) - Math.max(g.startMinutes, from)), 0);
       return {
@@ -2381,7 +2401,7 @@ function optimizeThienlongPlacement(state: SchedulerState): void {
             const inPeak = TEILZEIT_PEAK_WINDOWS.some(
               (w) => start >= w.startMinutes && start + presence <= w.endMinutes,
             );
-            if (!inPeak) pl.penalty += 50;
+            if (!inPeak) pl.penalty += 50; // zusätzlich zum „ca chuẩn"-Aufschlag
             out.push(pl);
           }
         }
