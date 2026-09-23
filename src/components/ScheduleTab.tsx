@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { RoleBadge } from "./RoleBadge";
+import { SavedSchedulesButton } from "./SavedSchedules";
 import { worksDinner, worksLunch } from "../lib/shiftMeals";
 import type { UseScheduleReturn } from "../hooks/useSchedule";
 import type { Shift } from "../types";
@@ -36,7 +37,7 @@ function localIsoDate(date: Date): string {
 }
 
 export function ScheduleTab({ store }: { store: UseScheduleReturn }) {
-  const { schedule, validation, readiness, generate, genError, savedMonths, updateMeta } = store;
+  const { schedule, validation, readiness, generate, genError } = store;
 
   // Tháng này đã có lịch thì hỏi trước khi tạo lại – tránh mất lịch đã lưu.
   const generateWithConfirm = () => {
@@ -146,30 +147,10 @@ export function ScheduleTab({ store }: { store: UseScheduleReturn }) {
         >
           Tạo lịch làm việc
         </button>
+        <SavedSchedulesButton store={store} />
         <span className="ml-auto text-sm text-slate-500">{monthLabel(schedule.year, schedule.month)}</span>
       </div>
 
-      {/* Các tháng đã lưu – bấm để mở lại lịch của tháng đó */}
-      {savedMonths.length > 0 && (
-        <div className="mb-3 flex flex-wrap items-center gap-1.5">
-          <span className="text-xs text-slate-500 mr-1">Các tháng đã lưu:</span>
-          {savedMonths.map((m) => (
-            <button
-              key={m.key}
-              onClick={() => updateMeta({ year: m.year, month: m.month })}
-              disabled={m.current}
-              title={`${m.shiftCount} ca · ${minutesToShortHours(m.totalMinutes)}`}
-              className={`rounded-full border px-3 py-1 text-xs ${
-                m.current
-                  ? "border-slate-900 bg-slate-900 text-white"
-                  : "border-slate-200 bg-white text-slate-700 hover:border-slate-400"
-              }`}
-            >
-              {m.month}/{m.year}
-            </button>
-          ))}
-        </div>
-      )}
 
       {!readiness.ready && (
         <div className="mb-3 rounded bg-amber-50 border border-amber-200 text-amber-800 text-sm px-3 py-2">

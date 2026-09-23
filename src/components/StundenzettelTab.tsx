@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import type { UseScheduleReturn } from "../hooks/useSchedule";
 import { StundenzettelPage } from "./StundenzettelPage";
+import { SavedSchedulesButton } from "./SavedSchedules";
 import { exportStundenzettelPdf, safeFileName } from "../lib/pdf";
 import { weeksOfMonth } from "../lib/weeks";
 
@@ -81,6 +82,16 @@ export function StundenzettelTab({ store }: { store: UseScheduleReturn }) {
 
   return (
     <>
+      {/* Tháng đang xem + mở lại bảng chấm công của tháng đã lưu */}
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        <span className="text-sm text-slate-600">
+          Đang xem: <b>Tháng {schedule.month}/{schedule.year}</b>
+        </span>
+        <div className="ml-auto flex flex-wrap items-center gap-2">
+          <SavedSchedulesButton store={store} />
+        </div>
+      </div>
+
       {/* ---- Xuất PDF ---- */}
       <div className="rounded-lg border border-slate-200 bg-white p-3 mb-4">
         <div className="text-sm font-medium text-slate-700 mb-2">Xuất bảng chấm công (PDF)</div>

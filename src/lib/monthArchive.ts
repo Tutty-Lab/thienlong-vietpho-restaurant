@@ -44,6 +44,8 @@ export type SavedMonth = {
   totalMinutes: number;
   /** true = đây là tháng đang mở. */
   current: boolean;
+  /** Lúc cất vào kho (ISO); tháng đang mở thì không có. */
+  savedAt?: string;
 };
 
 /** Alle Monate mit Plan (Archiv + aktuell geöffneter), chronologisch. */
@@ -56,6 +58,7 @@ export function listSavedMonths(schedule: Schedule): SavedMonth[] {
     shiftCount: a.shifts.length,
     totalMinutes: total(a.shifts),
     current: false,
+    savedAt: a.savedAt,
   }));
   if (schedule.shifts.length > 0) {
     list.push({
