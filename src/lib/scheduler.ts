@@ -1634,6 +1634,70 @@ function repairRoleCoverage(state: SchedulerState): void {
   }
 }
 
+/**
+ * Öffnungs-Regel: an jedem offenen Tag sollen MINDESTENS ZWEI Schichten genau
+ * zur Öffnungszeit beginnen (Validierung: „2 Personen zum Öffnen"). Reicht die
+ * Rollen-Abdeckung dafür nicht (nur eine Öffnungsschicht), wird eine weitere
+ * Schicht auf Frühanker gelegt – aber NUR, wenn sie danach wirklich zur Öffnung
+ * beginnt UND dadurch keine Rolle ihren letzten Ladenschluss verliert. An sehr
+ * dünn besetzten Tagen (zu wenig Personal) bleibt die Warnung bewusst stehen.
+ */
+function repairOpeningCount(state: SchedulerState): void {
+  if (state.isVietpho) return; // Vietpho hat eigene Peak-Validierung, keine Öffner-Regel
+  const roleOf = (shift: Shift): WorkRole | undefined =>
+    state.employeesById.get(shift.employeeId)?.workRole;
+  const segmentsOf = (shift: Shift) =>
+    shift.segments ?? [{ startMinutes: shift.startMinutes, endMinutes: shift.endMinutes }];
+
+  for (const date of state.dates) {
+    const day = state.dayOf(date);
+    if (day.closed) continue;
+    const openMinutes = day.blocks[0].startMinutes;
+    const closeMinutes = day.blocks[day.blocks.length - 1].endMinutes;
+    const onDay = () => state.shifts.filter((s) => s.date === date);
+
+    if (onDay().length < 2) continue; // mit einer Schicht sind keine zwei Öffner möglich
+    const opensAt = (s: Shift) =>
+      (s.segments?.[0]?.startMinutes ?? s.startMinutes) === openMinutes;
+    const coversClose = (s: Shift) => segmentsOf(s).some((g) => g.endMinutes >= closeMinutes);
+    // Würde die Schicht als Frühanker tatsächlich zur Öffnung beginnen?
+    const canOpen = (s: Shift): boolean => {
+      const presence = presenceFromPaid(s.paidMinutes);
+      if (day.blocks[0].endMinutes - day.blocks[0].startMinutes >= presence) return true;
+      return day.blocks.length >= 2 && buildSplitShift(s.paidMinutes, "EARLY", day.blocks) !== null;
+    };
+    // Priorität einer Kandidatenschicht: kleiner = lieber verschieben.
+    // 0 = verliert keinen letzten Schließer · 1 = letzter Bồi-Schließer (Notnagel)
+    // · 2 = letzter Bếp-Schließer (nur wenn gar nichts anderes geht).
+    const penalty = (s: Shift, lastCloserRoles: Set<WorkRole | undefined>): number => {
+      if (!coversClose(s) || !lastCloserRoles.has(roleOf(s))) return 0;
+      return roleOf(s) === "KITCHEN" ? 2 : 1;
+    };
+
+    const tried = new Set<string>();
+    while (onDay().filter(opensAt).length < 2) {
+      const shifts = onDay();
+      const closerCount = new Map<WorkRole | undefined, number>();
+      for (const s of shifts) {
+        if (coversClose(s)) closerCount.set(roleOf(s), (closerCount.get(roleOf(s)) ?? 0) + 1);
+      }
+      const lastCloserRoles = new Set(
+        [...closerCount.entries()].filter(([, n]) => n <= 1).map(([r]) => r),
+      );
+      const cand = shifts
+        .filter((s) => !tried.has(s.id) && !opensAt(s) && canOpen(s))
+        .sort(
+          (a, b) =>
+            penalty(a, lastCloserRoles) - penalty(b, lastCloserRoles) ||
+            a.paidMinutes - b.paidMinutes,
+        )[0];
+      if (!cand) break; // kein möglicher Frühanker mehr
+      tried.add(cand.id);
+      retypeShift(state, cand, "EARLY");
+    }
+  }
+}
+
 /** Fallback only for genuinely impossible inputs; no speculative monthly cap. */
 function buildUnmetMessage(
   state: SchedulerState,
@@ -1843,6 +1907,8 @@ export function generateSchedule(input: GenerateInput): Shift[] {
   else balanceShiftTypes(state);
   // Harte Regel zuletzt: jede Rolle deckt Öffnung UND Schluss ab.
   repairRoleCoverage(state);
+  // Danach: möglichst zwei Öffner je Tag (ohne einen Ladenschluss zu opfern).
+  repairOpeningCount(state);
 
   // Stabil sortieren: nach Datum, dann Startzeit, dann Mitarbeiter.
   state.shifts.sort(
