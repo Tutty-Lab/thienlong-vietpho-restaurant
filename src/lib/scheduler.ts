@@ -1576,6 +1576,90 @@ function balanceShiftTypes(state: SchedulerState): void {
 }
 
 /**
+ * Lückenlose Abdeckung je Rolle: In jedem Block muss durchgehend ≥1 Bếp und ≥1
+ * Bồi anwesend sein. Bleibt eine Lücke (typisch das Ende des Mittagsblocks, wenn
+ * alle Mittagsstücke schon um 13:30 enden), wird das Stück einer Rollenschicht in
+ * DEMSELBEN Block verschoben (gleiche Länge → Soll bleibt exakt) – aber nur, wenn
+ * die verlassene Stelle weiterhin von einer anderen Schicht gedeckt ist.
+ */
+function repairContinuousCoverage(state: SchedulerState): void {
+  if (!state.isThienlong) return;
+  const roleOf = (s: Shift): WorkRole | undefined =>
+    state.employeesById.get(s.employeeId)?.workRole;
+
+  const setSegment = (shift: Shift, index: number, start: number, end: number) => {
+    if (shift.segments && shift.segments.length > 1) {
+      shift.segments[index] = { startMinutes: start, endMinutes: end };
+      shift.startMinutes = Math.min(...shift.segments.map((g) => g.startMinutes));
+      shift.endMinutes = Math.max(...shift.segments.map((g) => g.endMinutes));
+    } else {
+      shift.startMinutes = start;
+      shift.endMinutes = end;
+      shift.segments = undefined;
+    }
+  };
+
+  for (const date of state.dates) {
+    const day = state.dayOf(date);
+    if (day.closed) continue;
+    for (const role of ["KITCHEN", "SERVICE"] as const) {
+      for (const block of day.blocks) {
+        for (let iter = 0; iter < 8; iter++) {
+          const roleShifts = state.shifts.filter((s) => s.date === date && roleOf(s) === role);
+          type Entry = { shift: Shift; i: number; rawStart: number; rawEnd: number; cs: number; ce: number };
+          const entries: Entry[] = [];
+          for (const s of roleShifts) {
+            const segs = s.segments ?? [{ startMinutes: s.startMinutes, endMinutes: s.endMinutes }];
+            for (let i = 0; i < segs.length; i++) {
+              const g = segs[i];
+              if (g.startMinutes < block.endMinutes && g.endMinutes > block.startMinutes) {
+                entries.push({
+                  shift: s,
+                  i,
+                  rawStart: g.startMinutes,
+                  rawEnd: g.endMinutes,
+                  cs: Math.max(g.startMinutes, block.startMinutes),
+                  ce: Math.min(g.endMinutes, block.endMinutes),
+                });
+              }
+            }
+          }
+          if (entries.length === 0) break;
+          const coveredBy = (list: Entry[], t: number) => list.some((e) => e.cs <= t && e.ce > t);
+          let gap = -1;
+          for (let t = block.startMinutes; t < block.endMinutes; t += 15) {
+            if (!coveredBy(entries, t)) { gap = t; break; }
+          }
+          if (gap < 0) break; // Block ist lückenlos
+
+          let fixed = false;
+          const near = [...entries].sort((a, b) => Math.abs(a.cs - gap) - Math.abs(b.cs - gap));
+          for (const e of near) {
+            const len = e.rawEnd - e.rawStart;
+            let ns = gap;
+            let ne = gap + len;
+            if (ne > block.endMinutes) { ne = block.endMinutes; ns = ne - len; }
+            if (ns < block.startMinutes) continue;
+            if (!(ns <= gap && ne > gap)) continue; // deckt die Lücke wirklich?
+            const others = entries.filter((x) => x !== e);
+            let vacatedOk = true;
+            for (let t = e.cs; t < e.ce; t += 15) {
+              if (!(t >= ns && t < ne) && !coveredBy(others, t)) { vacatedOk = false; break; }
+            }
+            if (!vacatedOk) continue;
+            setSegment(e.shift, e.i, ns, ne);
+            fixed = true;
+            break;
+          }
+
+          if (!fixed) break; // keine sichere Verschiebung im Block möglich
+        }
+      }
+    }
+  }
+}
+
+/**
  * Jede Rolle (Bếp/Bồi) muss an JEDEM offenen Tag mindestens EINMAL vorkommen.
  * Fehlt eine Rolle ganz (z.B. kein Bồi an einem Sonntag in der Azubi-Schulzeit),
  * wird eine Schicht dieser Rolle von einem Tag mit Überschuss (≥2 gleiche Rolle)
@@ -2032,6 +2116,8 @@ export function generateSchedule(input: GenerateInput): Shift[] {
   repairOpeningCount(state);
   // Zum Schluss: Abend nie schwächer besetzt als Mittag.
   repairEveningPeak(state);
+  // Ganz zuletzt: verbleibende Lücken innerhalb der Blöcke schließen.
+  repairContinuousCoverage(state);
 
   // Stabil sortieren: nach Datum, dann Startzeit, dann Mitarbeiter.
   state.shifts.sort(
