@@ -1625,8 +1625,10 @@ function repairDemand(state: SchedulerState, employeesById: Map<string, Employee
     // Kopie, da wir state.shifts während der Iteration verändern.
     for (const shift of [...state.shifts]) {
       const employee = employeesById.get(shift.employeeId)!;
-      // Moving a fixed-role Thienlong shift would undo its interval coverage.
-      if (state.isThienlong && employee.workRole) continue;
+      // Thienlong: Zeiten werden am Ende ohnehin neu an die Stoßzeiten gelegt
+      // (optimizeThienlongPlacement), daher darf auch eine Bếp/Bồi-Schicht den
+      // Tag wechseln – bewertet nach dem Soll IHRER Rolle.
+      const role = state.isThienlong ? employee.workRole : undefined;
       const from = shift.date;
       const worked = state.worked.get(employee.id)!;
 
@@ -1672,7 +1674,13 @@ function repairDemand(state: SchedulerState, employeesById: Map<string, Employee
         const newCostTo = Math.abs(
           state.dateState.get(to)!.totalPaid + shift.paidMinutes - state.rawTarget.get(to)!,
         );
-        const delta = newCostFrom + newCostTo - (oldCostFrom + oldCostTo);
+        const roleDelta = role
+          ? roleDeviation(state, role, from, -shift.paidMinutes) +
+            roleDeviation(state, role, to, shift.paidMinutes) -
+            roleDeviation(state, role, from) -
+            roleDeviation(state, role, to)
+          : 0;
+        const delta = newCostFrom + newCostTo - (oldCostFrom + oldCostTo) + roleDelta;
         if (delta < bestDelta) {
           bestDelta = delta;
           bestTarget = to;

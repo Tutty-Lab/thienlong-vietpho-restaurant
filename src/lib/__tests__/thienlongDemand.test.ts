@@ -58,13 +58,12 @@ describe("Thienlong role demand profile", () => {
     ).toBeCloseTo(1);
 
     expect(thienlongDemandShares("monday", "KITCHEN")).toEqual([
-      { startMinutes: 10 * 60 + 30, endMinutes: 11 * 60 + 30, share: 1 / 38 },
-      { startMinutes: 11 * 60 + 30, endMinutes: 12 * 60, share: 1.5 / 38 },
-      { startMinutes: 12 * 60, endMinutes: 14 * 60, share: 7 / 38 },
-      { startMinutes: 14 * 60, endMinutes: 15 * 60, share: 2 / 38 },
-      { startMinutes: 16 * 60 + 30, endMinutes: 17 * 60 + 30, share: 1.5 / 38 },
-      { startMinutes: 17 * 60 + 30, endMinutes: 20 * 60 + 30, share: 9 / 38 },
-      { startMinutes: 20 * 60 + 30, endMinutes: 22 * 60, share: 2 / 38 },
+      { startMinutes: 10 * 60 + 30, endMinutes: 11 * 60, share: 0.5 / 38 },
+      { startMinutes: 11 * 60, endMinutes: 14 * 60, share: 9 / 38 },
+      { startMinutes: 14 * 60, endMinutes: 15 * 60, share: 1.5 / 38 },
+      { startMinutes: 16 * 60 + 30, endMinutes: 17 * 60, share: 0.5 / 38 },
+      { startMinutes: 17 * 60, endMinutes: 20 * 60, share: 10 / 38 },
+      { startMinutes: 20 * 60, endMinutes: 22 * 60, share: 2.5 / 38 },
     ]);
   });
 
@@ -85,8 +84,8 @@ describe("Thienlong role demand profile", () => {
 
   it("treats the lunch and dinner windows as soft high-demand periods", () => {
     expect(thienlongMealPeakIntervals()).toEqual([
-      { startMinutes: 11 * 60 + 30, endMinutes: 14 * 60 + 30 },
-      { startMinutes: 17 * 60 + 30, endMinutes: 20 * 60 + 30 },
+      { startMinutes: 11 * 60, endMinutes: 14 * 60 },
+      { startMinutes: 17 * 60, endMinutes: 20 * 60 },
     ]);
 
     const peakDemand = thienlongMealPeakDemand(
@@ -125,10 +124,11 @@ describe("Thienlong role demand profile", () => {
       [{ startMinutes: 11 * 60 + 30, endMinutes: 22 * 60 }],
     );
 
+    // Sa-Bồi-Mittag 11:30–14:00 = 5,5 von 42 Referenzstunden.
     expect(clipped[0]).toEqual({
       startMinutes: 11 * 60 + 30,
-      endMinutes: 12 * 60,
-      personMinutes: 30,
+      endMinutes: 14 * 60,
+      personMinutes: 5.5 * 60,
     });
     expect(clipped.reduce((total, demand) => total + demand.personMinutes, 0)).toBe(16 * 60);
   });

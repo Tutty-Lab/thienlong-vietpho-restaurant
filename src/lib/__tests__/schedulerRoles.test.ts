@@ -90,7 +90,8 @@ describe("Thienlong role-aware scheduling", () => {
     );
     const oneShiftEach = employees.slice(0, 7).map((employee) => ({
       ...employee,
-      employmentType: "TEILZEIT" as const,
+      // Vollzeit: Teilzeit kommt inzwischen nur noch kurz zu EINER Stoßzeit.
+      employmentType: "VOLLZEIT" as const,
       targetMinutes: 6 * 60,
     }));
 
@@ -107,12 +108,12 @@ describe("Thienlong role-aware scheduling", () => {
     const peakCentered = shifts.filter((shift) =>
       shift.segments?.some(
         (segment) =>
-          segment.startMinutes === 11 * 60 + 30 &&
-          segment.endMinutes === 14 * 60 + 30,
+          segment.startMinutes === 11 * 60 &&
+          segment.endMinutes === 14 * 60,
       ) && shift.segments?.some(
         (segment) =>
-          segment.startMinutes === 17 * 60 + 30 &&
-          segment.endMinutes === 20 * 60 + 30,
+          segment.startMinutes === 17 * 60 &&
+          segment.endMinutes === 20 * 60,
       ),
     );
 
