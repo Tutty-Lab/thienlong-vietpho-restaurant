@@ -1760,6 +1760,63 @@ function repairOpeningCount(state: SchedulerState): void {
   }
 }
 
+/**
+ * Abend NIE schwächer als Mittag: das Abendgeschäft ist stärker, also sollen zum
+ * Abend-Peak (19:00) mindestens so viele Leute da sein wie zum Mittag (13:00).
+ * Ist es weniger, wird eine reine Mittagsschicht auf den Abend gelegt – aber nur
+ * wenn danach (a) jede Rolle mittags noch besetzt ist, (b) noch zwei Öffner
+ * bleiben und (c) die Schicht abends wirklich zählt.
+ */
+function repairEveningPeak(state: SchedulerState): void {
+  if (state.isVietpho) return;
+  const segmentsOf = (s: Shift) =>
+    s.segments ?? [{ startMinutes: s.startMinutes, endMinutes: s.endMinutes }];
+  const roleOf = (s: Shift): WorkRole | undefined =>
+    state.employeesById.get(s.employeeId)?.workRole;
+  const LUNCH = 13 * 60;
+  const DINNER = 19 * 60;
+  const at = (s: Shift, t: number) => segmentsOf(s).some((g) => g.startMinutes <= t && g.endMinutes > t);
+
+  for (const date of state.dates) {
+    const day = state.dayOf(date);
+    if (day.closed) continue;
+    const openMinutes = day.blocks[0].startMinutes;
+    const onDay = () => state.shifts.filter((s) => s.date === date);
+    const opensAt = (s: Shift) => (s.segments?.[0]?.startMinutes ?? s.startMinutes) === openMinutes;
+
+    let guard = 0;
+    while (guard++ < onDay().length) {
+      const shifts = onDay();
+      const lunch = shifts.filter((s) => at(s, LUNCH)).length;
+      const dinner = shifts.filter((s) => at(s, DINNER)).length;
+      if (dinner >= lunch) break;
+
+      // reine Mittagsschichten (mittags da, abends nicht), die abends zählen würden
+      const openers = shifts.filter(opensAt).length;
+      const cand = shifts
+        .filter((s) => {
+          if (!at(s, LUNCH) || at(s, DINNER)) return false; // muss Mittag→nicht-Abend sein
+          // Als Spätschicht muss sie abends wirklich zählen.
+          const p = presenceFromPaid(s.paidMinutes);
+          const last = day.blocks[day.blocks.length - 1];
+          if (last.endMinutes - last.startMinutes < p && day.blocks.length < 2) return false;
+          // Mittag muss für ihre Rolle noch besetzt bleiben.
+          const roleLunchOthers = shifts.filter(
+            (o) => o.id !== s.id && roleOf(o) === roleOf(s) && at(o, LUNCH),
+          ).length;
+          if (roleLunchOthers < 1) return false;
+          // Zwei Öffner müssen bleiben.
+          if (opensAt(s) && openers <= 2) return false;
+          return true;
+        })
+        .sort((a, b) => a.paidMinutes - b.paidMinutes)[0];
+      if (!cand) break;
+      retypeShift(state, cand, "LATE");
+      if (!at(cand, DINNER)) break; // hat nicht geholfen -> abbrechen
+    }
+  }
+}
+
 /** Fallback only for genuinely impossible inputs; no speculative monthly cap. */
 function buildUnmetMessage(
   state: SchedulerState,
@@ -1973,6 +2030,8 @@ export function generateSchedule(input: GenerateInput): Shift[] {
   repairRoleCoverage(state);
   // Danach: möglichst zwei Öffner je Tag (ohne einen Ladenschluss zu opfern).
   repairOpeningCount(state);
+  // Zum Schluss: Abend nie schwächer besetzt als Mittag.
+  repairEveningPeak(state);
 
   // Stabil sortieren: nach Datum, dann Startzeit, dann Mitarbeiter.
   state.shifts.sort(
