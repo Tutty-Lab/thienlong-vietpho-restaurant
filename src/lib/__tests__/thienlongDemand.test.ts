@@ -67,10 +67,10 @@ describe("Thienlong role demand profile", () => {
     ]);
   });
 
-  it("uses 1:1.35:1.2 demand weights for quiet, Friday/Saturday, and Sunday", () => {
+  it("uses 1:1.35:1.1 demand weights for quiet, Friday/Saturday, and Sunday", () => {
     expect(thienlongDemandWeight("friday")).toBeCloseTo(1.35);
     expect(thienlongDemandWeight("saturday")).toBeCloseTo(1.35);
-    expect(thienlongDemandWeight("sunday")).toBeCloseTo(1.2);
+    expect(thienlongDemandWeight("sunday")).toBeCloseTo(1.1);
     expect(thienlongDemandWeight("monday", true)).toBeCloseTo(1.35);
     expect(thienlongLateShiftRatio("friday")).toBe(thienlongLateShiftRatio("saturday"));
     expect(thienlongDemandWeight("monday")).toBe(1);

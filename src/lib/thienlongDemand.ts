@@ -197,7 +197,8 @@ export function thienlongDemandIntervals(
 export function thienlongDemandWeight(weekday: WeekdayKey, isHoliday = false): number {
   if (isHoliday) return 1.35;
   if (weekday === "friday" || weekday === "saturday") return 1.35;
-  if (weekday === "sunday") return 1.2;
+  // Chủ nhật ~55 h statt ~59 h (Wunsch Chef, Sept 2026).
+  if (weekday === "sunday") return 1.1;
   return 1;
 }
 
@@ -216,7 +217,7 @@ export function thienlongStaffingProfile(
     return { minStaff: 7, maxStaff: 8, ...band };
   }
   if (weekday === "sunday") {
-    // Sonntag ist ein starker Tag (Gewicht 1,2). Mit einem Kopf-Untergrenze von
+    // Sonntag ist ein starker Tag (Gewicht 1,1). Mit einem Kopf-Untergrenze von
     // 7 (wie Fr/Sa) zieht die Planung genug Leute auf den Sonntag, damit er
     // wirklich MEHR Stunden bekommt als ein Wochentag – nicht gleich viel.
     return { minStaff: 7, maxStaff: 8, ...band };

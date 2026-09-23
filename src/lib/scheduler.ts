@@ -142,7 +142,7 @@ type SchedulerState = {
 
 /**
  * Tages-Soll rein PROPORTIONAL zu den Nachfrage-Gewichten (Mo–Do 1,0;
- * Fr/Sa 1,35; So 1,2). Dadurch bekommt jeder Wochenendtag mehr Stunden als ein
+ * Fr/Sa 1,35; So 1,1). Dadurch bekommt jeder Wochenendtag mehr Stunden als ein
  * ruhiger Wochentag – unabhängig von der Teamgröße. Es gibt KEINE fest
  * verdrahtete Stundenzahl je Tag (früher 55–60 h für Mo–Do); das hatte bei
  * größeren Teams die Wochenenden künstlich eingeebnet, weil die vielen
@@ -1473,12 +1473,20 @@ function extendExistingShiftsToTargets(
           return { shift, available: Math.max(0, Math.floor(available / 30) * 30) };
         })
         .filter((option) => option.available > 0)
-        .sort((a, b) => b.available - a.available || a.shift.date.localeCompare(b.shift.date));
+        // Kürzeste Schicht zuerst und nur 30 min je Schritt: der Rest verteilt
+        // sich gleichmäßig (z.B. mehrere 4-h-Einsätze auf 4,5 h) statt einen
+        // einzelnen Tag auf 8–10 h aufzublähen.
+        .sort(
+          (a, b) =>
+            a.shift.paidMinutes - b.shift.paidMinutes ||
+            b.available - a.available ||
+            a.shift.date.localeCompare(b.shift.date),
+        );
 
       const option = options[0];
       if (!option) break;
 
-      const added = Math.min(remaining, option.available);
+      const added = Math.min(remaining, option.available, 30);
       const date = option.shift.date;
       const paidMinutes = option.shift.paidMinutes + added;
       removeShift(state, option.shift);
@@ -2549,7 +2557,11 @@ export function generateSchedule(input: GenerateInput): Shift[] {
         0,
       );
       st.extraStaff = Math.max(0, Math.ceil((visits - capacity) / openThienlongDates.length));
-      if (st.extraStaff > 0) st.extraStaff += staffBoost;
+    }
+    if (isThienlong) {
+      // Notlösung: das Monatssoll ist hart, die Kopf-Obergrenze nur weich.
+      st.extraStaff += staffBoost;
+
     }
 
     placeRigidShifts(st);
@@ -2580,20 +2592,22 @@ export function generateSchedule(input: GenerateInput): Shift[] {
     state = attempt(true, `#${k}`);
   }
   if (incomplete(state)) state = attempt(false);
-  // Wird die Kopf-Obergrenze wegen der Mitarbeiter-Einstellungen ohnehin
-  // angehoben und reicht es trotzdem nicht, eine weitere Person je Tag erlauben.
-  if (incomplete(state) && state.extraStaff > 0) {
-    for (let k = 0; k < 3 && incomplete(state); k++) {
-      state = attempt(true, `+${k}`, 1);
-    }
-  }
 
-  if (incomplete(state)) extendExistingShiftsToTargets(state);
-  if (incomplete(state) && state.isThienlong) {
-    extendExistingShiftsToTargets(
-      state,
-      AZUBI_WEEKLY_TARGET_FLEX_HOURS * 60,
-    );
+  // Rest zuerst in bestehende Einsätze legen (keine zusätzlichen Köpfe).
+  const finish = (st: SchedulerState) => {
+    if (incomplete(st)) extendExistingShiftsToTargets(st);
+    if (incomplete(st) && st.isThienlong) {
+      extendExistingShiftsToTargets(st, AZUBI_WEEKLY_TARGET_FLEX_HOURS * 60);
+    }
+  };
+  finish(state);
+
+  // Reicht es trotzdem nicht, eine weitere Person je Tag erlauben (Thienlong):
+  // das Monatssoll ist eine harte Regel, die Kopf-Obergrenze nur eine weiche.
+  for (let k = 0; k < 3 && incomplete(state) && state.isThienlong; k++) {
+    const retry = attempt(true, `+${k}`, 1);
+    finish(retry);
+    if (!incomplete(retry)) state = retry;
   }
 
   const unmet = employees.filter((e) => state.remaining.get(e.id)! > 0);

@@ -284,7 +284,7 @@ export function DocsTab({ storeId }: { storeId: string }) {
           <br />
           {isThienlong ? (
             <>
-              <b>Thứ 2–Thứ 5</b> dùng mức nền 1,00; <b>Thứ 6–Thứ 7</b> dùng mức 1,35 và <b>Chủ Nhật</b> dùng mức 1,20.
+              <b>Thứ 2–Thứ 5</b> dùng mức nền 1,00; <b>Thứ 6–Thứ 7</b> dùng mức 1,35 và <b>Chủ Nhật</b> dùng mức 1,10.
             </>
           ) : (
             <>
