@@ -1938,6 +1938,226 @@ const TEILZEIT_PEAK_WINDOWS = [
   { startMinutes: 16 * 60 + 30, endMinutes: 22 * 60 },
 ] as const;
 
+/**
+ * Harte Regel (Thienlong): kein 30-Minuten-Slot eines offenen Tages ohne Bếp
+ * bzw. ohne Bồi. Bleibt nach der Optimierung doch eine Lücke (z.B. Sonntag ohne
+ * Vollzeit-Service, nur kurze Teilzeit-Einsätze), wird eine Kollegin/ein
+ * Kollege derselben Rolle – Teilzeit zuerst – dort eingesetzt bzw. deren
+ * Einsatz verlängert (Teilzeit dann bis 6 h). Die zusätzlichen Minuten werden
+ * von den längsten eigenen Schichten an anderen Tagen abgezogen, sodass das
+ * Monatssoll exakt bleibt.
+ */
+function repairRoleGaps(state: SchedulerState): boolean {
+  if (!state.isThienlong) return false;
+  const SLOT = 30;
+  const GAP_SHIFT_MAX = 6 * 60; // am Stück ohne Pause
+  const minPaidOf = (e: Employee) =>
+    e.employmentType === "TEILZEIT" ? 2 * 60 : e.employmentType === "AZUBI" ? 3 * 60 : 5 * 60;
+  const segmentsOf = (sh: Shift) =>
+    sh.segments ?? [{ startMinutes: sh.startMinutes, endMinutes: sh.endMinutes }];
+  const roleOf = (sh: Shift) => state.employeesById.get(sh.employeeId)?.workRole;
+  const typeRank = (e: Employee) =>
+    e.employmentType === "TEILZEIT" ? 0 : e.employmentType === "AZUBI" ? 1 : 2;
+
+  /** Kürzt eine Schicht um 30 min (Ende des längsten Stücks). */
+  const shorten = (sh: Shift): Shift => {
+    const paid = sh.paidMinutes - SLOT;
+    if (sh.segments && sh.segments.length > 1) {
+      const segs = sh.segments.map((g) => ({ ...g }));
+      const i = segs.reduce((best, g, k) =>
+        g.endMinutes - g.startMinutes > segs[best].endMinutes - segs[best].startMinutes ? k : best, 0);
+      segs[i].endMinutes -= SLOT;
+      return { ...sh, segments: segs, paidMinutes: paid, endMinutes: segs[segs.length - 1].endMinutes };
+    }
+    const pause = calculatePause(paid);
+    return { ...sh, paidMinutes: paid, pauseMinutes: pause, endMinutes: sh.startMinutes + paid + pause, segments: undefined };
+  };
+
+  /** Nimmt `minutes` von anderen Tagen der Person weg; false, wenn nicht genug Luft. */
+  const takeFromOtherDays = (e: Employee, exceptDate: string, minutes: number): boolean => {
+    const own = () => state.shifts.filter((sh) => sh.employeeId === e.id && sh.date !== exceptDate);
+    const slack = own().reduce((a, sh) => a + Math.max(0, sh.paidMinutes - minPaidOf(e)), 0);
+    if (slack < minutes) return false;
+    // Zuerst an Tagen kürzen, an denen die Rolle am stärksten besetzt ist –
+    // dort reißt das Kürzen keine neue Lücke.
+    const sameRoleCount = (d: string) =>
+      state.shifts.filter((sh) => sh.date === d && roleOf(sh) === e.workRole).length;
+    for (let left = minutes; left > 0; left -= SLOT) {
+      const longest = own()
+        .filter((sh) => sh.paidMinutes - SLOT >= minPaidOf(e))
+        .sort(
+          (a, b) =>
+            sameRoleCount(b.date) - sameRoleCount(a.date) || b.paidMinutes - a.paidMinutes,
+        )[0];
+      const next = shorten(longest);
+      removeShift(state, longest);
+      applyShift(state, next);
+    }
+    return true;
+  };
+
+  let changed = false;
+  for (const date of state.dates) {
+    const day = state.dayOf(date);
+    if (day.closed) continue;
+    for (const role of ["KITCHEN", "SERVICE"] as const) {
+      for (let guard = 0; guard < 6; guard++) {
+        // Erste Lücke (zusammenhängend) dieser Rolle suchen.
+        const roleShifts = state.shifts.filter((sh) => sh.date === date && roleOf(sh) === role);
+        let gap: { block: ResolvedDay["blocks"][number]; start: number; end: number } | null = null;
+        for (const block of day.blocks) {
+          for (let t = block.startMinutes; t + SLOT <= block.endMinutes; t += SLOT) {
+            const covered = roleShifts.some((sh) =>
+              segmentsOf(sh).some((g) => g.startMinutes <= t && g.endMinutes >= t + SLOT),
+            );
+            if (!covered) {
+              if (!gap) gap = { block, start: t, end: t + SLOT };
+              else if (gap.block === block && gap.end === t) gap.end = t + SLOT;
+            }
+          }
+          if (gap) break;
+        }
+        if (!gap) break;
+
+        const candidates = [...state.employeesById.values()]
+          .filter((e) => e.workRole === role && e.targetMinutes > 0)
+          .sort((a, b) => typeRank(a) - typeRank(b));
+        const gapCount = (list: Shift[]) => {
+          let n = 0;
+          for (const b of day.blocks) {
+            for (let t = b.startMinutes; t + SLOT <= b.endMinutes; t += SLOT) {
+              const hit = list.some((x) =>
+                segmentsOf(x).some((q) => q.startMinutes <= t && q.endMinutes >= t + SLOT),
+              );
+              if (!hit) n += 1;
+            }
+          }
+          return n;
+        };
+        const weekOk = (e: Employee, extra: number) => {
+          const weekCap = weeklyCapMinutes(e);
+          if (weekCap === null) return true;
+          const used = state.weekMinutes.get(e.id)!.get(weekKeyOf(date)) ?? 0;
+          return used + extra <= weekCap + AZUBI_WEEKLY_TARGET_FLEX_HOURS * 60;
+        };
+        let fixed = false;
+
+        // (a) Geteilten Dienst derselben Rolle verlängern: das Stück im Block
+        //     der Lücke Richtung Lücke ziehen (Stück ≤ 6 h, Tag ≤ 10 h).
+        for (const sh of roleShifts) {
+          if (fixed) break;
+          if (!sh.segments || sh.segments.length < 2) continue;
+          const e = state.employeesById.get(sh.employeeId)!;
+          const segs = sh.segments.map((g) => ({ ...g }));
+          const g = segs.find(
+            (x) => x.startMinutes >= gap!.block.startMinutes && x.endMinutes <= gap!.block.endMinutes,
+          );
+          if (!g) continue;
+          if (gap.start >= g.endMinutes) g.endMinutes = Math.min(gap.end, g.startMinutes + GAP_SHIFT_MAX);
+          else if (gap.end <= g.startMinutes) g.startMinutes = Math.max(gap.start, g.endMinutes - GAP_SHIFT_MAX);
+          else continue;
+          const paid = segs.reduce((a, x) => a + x.endMinutes - x.startMinutes, 0);
+          const extra = paid - sh.paidMinutes;
+          const next: Shift = {
+            ...sh,
+            segments: segs,
+            startMinutes: segs[0].startMinutes,
+            endMinutes: segs[segs.length - 1].endMinutes,
+            paidMinutes: paid,
+            pauseMinutes: 0,
+            shiftType: "CUSTOM",
+          };
+          if (paid > MAX_DAILY_MINUTES || extra <= 0 || !weekOk(e, extra)) continue;
+          if (gapCount(roleShifts.map((x) => (x === sh ? next : x))) >= gapCount(roleShifts)) continue;
+          if (!takeFromOtherDays(e, date, extra)) continue;
+          removeShift(state, sh);
+          applyShift(state, next);
+          fixed = true;
+          changed = true;
+        }
+
+        // (b) Einen Einsatz am Stück in die Lücke verlegen (Länge bleibt), wenn
+        //     dadurch insgesamt weniger Lücken bleiben.
+        for (const sh of roleShifts) {
+          if (fixed) break;
+          if (sh.segments && sh.segments.length > 1) continue;
+          const len = sh.endMinutes - sh.startMinutes;
+          const start = Math.min(gap.start, gap.block.endMinutes - len);
+          if (start < gap.block.startMinutes) continue;
+          const moved: Shift = { ...sh, startMinutes: start, endMinutes: start + len };
+          if (gapCount(roleShifts.map((x) => (x === sh ? moved : x))) >= gapCount(roleShifts)) continue;
+          removeShift(state, sh);
+          applyShift(state, moved);
+          fixed = true;
+          changed = true;
+        }
+
+        for (const e of candidates) {
+          if (fixed) break;
+          const existing = state.shifts.find((sh) => sh.employeeId === e.id && sh.date === date);
+          if (existing && existing.segments && existing.segments.length > 1) continue;
+          if (!existing) {
+            if (!matchesEmployeeDayRules(state, e, date)) continue;
+            if (consecutiveRunLengthWith(state.worked.get(e.id)!, date) > 6) continue;
+            const cap = desiredWeeklyDayCap(state, e);
+            if (Number.isFinite(cap)) {
+              const week = weekKeyOf(date);
+              const days = [...state.worked.get(e.id)!].filter((d) => weekKeyOf(d) === week).length;
+              if (days >= cap) continue;
+            }
+          }
+          // Neuer bzw. verlängerter Einsatz am Stück, der die Lücke abdeckt.
+          let start = gap.start;
+          let end = Math.min(gap.end, gap.start + GAP_SHIFT_MAX);
+          if (existing) {
+            if (existing.startMinutes < gap.block.startMinutes || existing.endMinutes > gap.block.endMinutes) continue;
+            if (existing.paidMinutes >= GAP_SHIFT_MAX) continue;
+            // Richtung Lücke verlängern, höchstens auf 6 h am Stück.
+            if (gap.start >= existing.endMinutes) {
+              start = existing.startMinutes;
+              end = Math.min(gap.end, existing.startMinutes + GAP_SHIFT_MAX);
+            } else if (gap.end <= existing.startMinutes) {
+              end = existing.endMinutes;
+              start = Math.max(gap.start, existing.endMinutes - GAP_SHIFT_MAX);
+            } else {
+              start = Math.min(gap.start, existing.startMinutes);
+              end = Math.max(gap.end, existing.endMinutes);
+              if (end - start > GAP_SHIFT_MAX) continue;
+            }
+            // Deckt der verlängerte Einsatz den Lückenbeginn überhaupt ab?
+            if (!(start <= gap.start && end > gap.start) && !(start < gap.end && end >= gap.end)) continue;
+          }
+          while (end - start < minPaidOf(e) && (start > gap.block.startMinutes || end < gap.block.endMinutes)) {
+            if (end < gap.block.endMinutes) end += SLOT;
+            else start -= SLOT;
+          }
+          const paid = end - start; // ≤ 6 h => keine Pause
+          const extra = paid - (existing?.paidMinutes ?? 0);
+          if (!weekOk(e, extra)) continue;
+          if (!takeFromOtherDays(e, date, extra)) continue;
+          if (existing) removeShift(state, existing);
+          applyShift(state, {
+            id: existing?.id ?? nextShiftId(),
+            employeeId: e.id,
+            date,
+            startMinutes: start,
+            endMinutes: end,
+            pauseMinutes: 0,
+            paidMinutes: paid,
+            shiftType: "CUSTOM",
+            generated: true,
+          });
+          fixed = true;
+          changed = true;
+          break;
+        }
+        if (!fixed) break; // niemand verfügbar – bleibt als Warnung sichtbar
+      }
+    }
+  }
+  return changed;
+}
+
 function optimizeThienlongPlacement(state: SchedulerState): void {
   if (!state.isThienlong) return;
   const SLOT = 30;
@@ -2644,6 +2864,10 @@ export function generateSchedule(input: GenerateInput): Shift[] {
   repairContinuousCoverage(state);
   // Feinschliff: Zeiten je Tag an das Nachfrageprofil anpassen (Dauer bleibt).
   optimizeThienlongPlacement(state);
+  // Harte Regel: Lücken ohne Bếp/Bồi schließen, danach Zeiten neu ausrichten.
+  for (let round = 0; round < 6 && repairRoleGaps(state); round++) {
+    optimizeThienlongPlacement(state);
+  }
 
   // Stabil sortieren: nach Datum, dann Startzeit, dann Mitarbeiter.
   state.shifts.sort(

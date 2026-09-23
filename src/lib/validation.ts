@@ -214,6 +214,37 @@ export function validateSchedule(
         continue;
       }
 
+      // Thienlong: kein 30-Minuten-Slot ohne Bếp bzw. ohne Bồi.
+      if (context.storeId === "thienlong") {
+        const roleById = new Map(employees.map((e) => [e.id, e.workRole] as const));
+        const dayShifts = shifts.filter((shift) => shift.date === date);
+        for (const role of ["KITCHEN", "SERVICE"] as const) {
+          if (!employees.some((e) => e.workRole === role && e.targetMinutes > 0)) continue;
+          const roleShifts = dayShifts.filter((shift) => roleById.get(shift.employeeId) === role);
+          const ranges: [number, number][] = [];
+          for (const block of day.blocks) {
+            for (let t = block.startMinutes; t + 30 <= block.endMinutes; t += 30) {
+              const covered = roleShifts.some((shift) =>
+                (shift.segments ?? [shift]).some(
+                  (segment) => segment.startMinutes <= t && segment.endMinutes >= t + 30,
+                ),
+              );
+              if (covered) continue;
+              const last = ranges[ranges.length - 1];
+              if (last && last[1] === t) last[1] = t + 30;
+              else ranges.push([t, t + 30]);
+            }
+          }
+          if (ranges.length > 0) {
+            const label = role === "KITCHEN" ? "Bếp" : "Bồi";
+            const text = ranges
+              .map(([a, b]) => `${minutesToTime(a)}–${minutesToTime(b)}`)
+              .join(", ");
+            errors.push({ date, message: `Ngày ${date}: không có ${label} lúc ${text}.` });
+          }
+        }
+      }
+
       const openingStart = day.blocks[0].startMinutes;
       const openerCount = shifts.filter((shift) => {
         if (shift.date !== date) return false;
