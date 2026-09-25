@@ -37,7 +37,7 @@ type ReferenceProfile = Record<WorkRole, readonly ReferenceInterval[]>;
 export const THIENLONG_REFERENCE_INVOICES = 150;
 
 const MEAL_PEAKS = [
-  { startMinutes: 11 * 60, endMinutes: 14 * 60 },
+  { startMinutes: 12 * 60, endMinutes: 14 * 60 },
   { startMinutes: 17 * 60, endMinutes: 20 * 60 },
 ] as const;
 

@@ -84,7 +84,7 @@ describe("Thienlong role demand profile", () => {
 
   it("treats the lunch and dinner windows as soft high-demand periods", () => {
     expect(thienlongMealPeakIntervals()).toEqual([
-      { startMinutes: 11 * 60, endMinutes: 14 * 60 },
+      { startMinutes: 12 * 60, endMinutes: 14 * 60 },
       { startMinutes: 17 * 60, endMinutes: 20 * 60 },
     ]);
 
