@@ -6,6 +6,8 @@ import { WEEKDAY_LABELS_VI, weekdayKeyOf, parseIsoDate } from "../lib/demand";
 import { resolveDay } from "../lib/workHours";
 import { holidaysOf } from "../lib/holidays";
 import { isEmployeeFixedDayOff } from "../lib/fixedDaysOff";
+import { employmentPeriodLabel } from "../lib/employmentPeriod";
+import { isEmployeeAvailableOn, unavailableReason } from "../lib/availability";
 
 const inputClass =
   "rounded border border-slate-300 px-2 py-1.5 text-sm focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-500";
@@ -26,6 +28,8 @@ export function ShiftCellEditor({
   const employee = schedule.employees.find((e) => e.id === employeeId)!;
   const shift = findShift(employeeId, date);
   const fixedDayOff = isEmployeeFixedDayOff(employee, date);
+  const inactive = unavailableReason(employee, date);
+  const blocked = fixedDayOff || !!inactive;
 
   // Standardzeiten für eine neue Schicht = Arbeitszeit-Fenster dieses Tages
   // (inkl. Ausnahmen / Feiertag).
@@ -50,13 +54,14 @@ export function ShiftCellEditor({
     (e) =>
       e.id !== employeeId &&
       !findShift(e.id, date) &&
-      !isEmployeeFixedDayOff(e, date),
+      !isEmployeeFixedDayOff(e, date) &&
+      isEmployeeAvailableOn(e, date),
   );
 
   const weekday = WEEKDAY_LABELS_VI[weekdayKeyOf(parseIsoDate(date))];
 
   function save() {
-    if (parseError || fixedDayOff) return;
+    if (parseError || blocked) return;
     const s = timeToMinutes(start);
     const en = timeToMinutes(end);
     const p = Number(pause);
@@ -85,6 +90,11 @@ export function ShiftCellEditor({
           {resolved.closed && (
             <p className="text-xs text-rose-600 mt-0.5">
               Ngày này được đặt „đóng cửa" — ca thêm ở đây là ngoại lệ.
+            </p>
+          )}
+          {inactive && (
+            <p className="mt-0.5 text-xs font-medium text-violet-700">
+              {inactive}{employmentPeriodLabel(employee) && ` (${employmentPeriodLabel(employee)})`}. Không thể thêm ca ở ngày này.
             </p>
           )}
           {fixedDayOff && (
@@ -156,10 +166,10 @@ export function ShiftCellEditor({
         <div className="flex flex-wrap items-center gap-2 border-t border-slate-200 px-4 py-3">
           <button
             onClick={save}
-            disabled={!!parseError || fixedDayOff}
+            disabled={!!parseError || blocked}
             className="rounded bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 active:bg-slate-800 disabled:opacity-40"
           >
-            {fixedDayOff ? "Ngày nghỉ cố định" : shift ? "Lưu" : "Thêm ca"}
+            {inactive ?? (fixedDayOff ? "Ngày nghỉ cố định" : shift ? "Lưu" : "Thêm ca")}
           </button>
           {shift && (
             <>

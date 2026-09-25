@@ -14,12 +14,16 @@ import {
   weekdayKeyOf,
 } from "../lib/demand";
 import { minutesToShortHours } from "../lib/time";
+import { holidaysOf } from "../lib/holidays";
+import { resolveDay } from "../lib/workHours";
+import { thienlongMinStaffWindows } from "../lib/thienlongDemand";
 import { signedHours } from "../lib/dateFormat";
 import { monthLabel } from "../lib/shiftOps";
 import { ShiftCellEditor } from "./ShiftCellEditor";
 import { ScheduleDayView } from "./ScheduleDayView";
 import { ShiftTimes } from "./ShiftTimes";
 import { isEmployeeFixedDayOff } from "../lib/fixedDaysOff";
+import { unavailableReason } from "../lib/availability";
 
 function isWeekendKey(iso: string): boolean {
   const k = weekdayKeyOf(parseIsoDate(iso));
@@ -136,6 +140,42 @@ export function ScheduleTab({ store }: { store: UseScheduleReturn }) {
     }
     return stats;
   }, [dates, schedule.shifts, roleOf]);
+
+  // Thienlong: Bếp/Bồi ít nhất có mặt trong từng khung giờ (lúc vắng nhất của
+  // khung), để thấy ngay chỗ chỉ còn 1–2 người. `need` = mức tối thiểu theo luật.
+  const isThienlong = store.storeId === "thienlong";
+  const coverage = useMemo(() => {
+    const result = new Map<string, Map<string, Coverage | null>>();
+    if (!isThienlong) return result;
+    const holidays = holidaysOf(schedule.year, schedule.holidayState);
+    const overrideMap = Object.fromEntries(schedule.dateOverrides.map((o) => [o.date, o]));
+    for (const d of dates) {
+      const perWindow = new Map<string, Coverage | null>();
+      result.set(d, perWindow);
+      const day = resolveDay(schedule.workHours, d, holidays, overrideMap);
+      const dayShifts = schedule.shifts.filter((s) => s.date === d);
+      const weekday = weekdayKeyOf(parseIsoDate(d));
+      for (const w of COVERAGE_WINDOWS) {
+        const from = w.from ?? day.blocks[0]?.startMinutes ?? 0;
+        let cell: Coverage | null = null;
+        for (const block of day.closed ? [] : day.blocks) {
+          for (let t = Math.max(from, block.startMinutes); t + 30 <= Math.min(w.to, block.endMinutes); t += 30) {
+            const count = roleShiftsAt(dayShifts, roleOf, w.role, t);
+            const need = thienlongMinStaffWindows(weekday, w.role).reduce(
+              (max, m) => (t >= m.startMinutes && t + 30 <= m.endMinutes ? Math.max(max, m.minStaff) : max),
+              0,
+            );
+            if (!cell) cell = { min: count, short: false, need: 0 };
+            cell.min = Math.min(cell.min, count);
+            if (count < need) cell.short = true;
+            cell.need = Math.max(cell.need, need);
+          }
+        }
+        perWindow.set(w.key, cell);
+      }
+    }
+    return result;
+  }, [isThienlong, dates, schedule, roleOf]);
 
   const hasEmployees = schedule.employees.length > 0;
 
@@ -326,14 +366,17 @@ export function ScheduleTab({ store }: { store: UseScheduleReturn }) {
                     {dates.map((d) => {
                       const shift = shiftMap.get(`${emp.id}#${d}`);
                       const fixedDayOff = isEmployeeFixedDayOff(emp, d);
+                      const inactive = unavailableReason(emp, d);
                       return (
                         <td
                           key={d}
                           onClick={() => setSelected({ employeeId: emp.id, date: d })}
                           className={`border-b border-l border-slate-200 px-1 py-1 text-center cursor-pointer align-middle ${cellClass(
                             shift,
-                          )} ${fixedDayOff && !shift ? "bg-amber-50 text-amber-800" : ""}`}
-                          title={fixedDayOff ? "Ngày nghỉ cố định" : "Bấm để sửa"}
+                          )} ${fixedDayOff && !shift ? "bg-amber-50 text-amber-800" : ""} ${
+                            inactive && !shift ? "bg-slate-100 text-slate-400" : ""
+                          }`}
+                          title={inactive ?? (fixedDayOff ? "Ngày nghỉ cố định" : "Bấm để sửa")}
                         >
                           {shift ? (
                             <div className="leading-tight">
@@ -345,7 +388,7 @@ export function ScheduleTab({ store }: { store: UseScheduleReturn }) {
                             </div>
                           ) : (
                             <span className="text-[11px]">
-                              {fixedDayOff ? "Nghỉ cố định" : "Nghỉ"}
+                              {inactive ?? (fixedDayOff ? "Nghỉ cố định" : "Nghỉ")}
                             </span>
                           )}
                         </td>
@@ -379,6 +422,15 @@ export function ScheduleTab({ store }: { store: UseScheduleReturn }) {
               <SummaryRow label="Bồi trưa" dates={dates} value={(d) => String(dayStats.get(d)!.serviceLunch)} />
               <SummaryRow label="Bếp tối" dates={dates} value={(d) => String(dayStats.get(d)!.kitchenDinner)} />
               <SummaryRow label="Bồi tối" dates={dates} value={(d) => String(dayStats.get(d)!.serviceDinner)} />
+              {isThienlong &&
+                COVERAGE_WINDOWS.map((w) => (
+                  <CoverageRow
+                    key={w.key}
+                    label={w.label}
+                    dates={dates}
+                    cell={(d) => coverage.get(d)?.get(w.key) ?? null}
+                  />
+                ))}
             </tfoot>
           </table>
         </div>
@@ -417,6 +469,91 @@ function SummaryRow({
           {value(d)}
         </td>
       ))}
+      <td className="border-t border-l border-slate-200" />
+      <td className="border-t border-l border-slate-200" />
+    </tr>
+  );
+}
+
+type Coverage = { min: number; short: boolean; need: number };
+
+// Khung giờ cho các dòng „ít nhất" ở chân bảng (from undefined = giờ mở cửa).
+const COVERAGE_WINDOWS: {
+  key: string;
+  label: string;
+  role: "KITCHEN" | "SERVICE";
+  from?: number;
+  to: number;
+}[] = (
+  [
+    ["open", "mở cửa–12h", undefined, 12 * 60],
+    ["noon", "12–14h", 12 * 60, 14 * 60],
+    ["afternoon", "14–17h", 14 * 60, 17 * 60],
+    ["evening", "17–20h", 17 * 60, 20 * 60],
+    ["late", "20–22h", 20 * 60, 22 * 60],
+  ] as const
+).flatMap(([key, range, from, to]) =>
+  (["KITCHEN", "SERVICE"] as const).map((role) => ({
+    key: `${role}-${key}`,
+    label: `${role === "KITCHEN" ? "Bếp" : "Bồi"} ${range}`,
+    role,
+    from,
+    to,
+  })),
+);
+
+function roleShiftsAt(
+  shifts: Shift[],
+  roleOf: Map<string, string | undefined>,
+  role: "KITCHEN" | "SERVICE",
+  t: number,
+): number {
+  return shifts.filter(
+    (s) =>
+      roleOf.get(s.employeeId) === role &&
+      (s.segments ?? [s]).some((g) => g.startMinutes <= t && g.endMinutes >= t + 30),
+  ).length;
+}
+
+/** Dòng „ít nhất x người" trong khung giờ: 1 = đỏ, 2 = vàng, thiếu luật = viền đỏ. */
+function CoverageRow({
+  label,
+  dates,
+  cell,
+}: {
+  label: string;
+  dates: string[];
+  cell: (d: string) => Coverage | null;
+}) {
+  return (
+    <tr className="bg-slate-50 text-slate-600">
+      <td className="sticky left-0 z-10 bg-slate-50 border-t border-r border-slate-200 px-2 py-1 font-medium whitespace-nowrap">
+        {label} <span className="text-[11px] font-normal text-slate-400">ít nhất</span>
+      </td>
+      <td className="border-t border-slate-200" />
+      <td className="border-t border-slate-200" />
+      {dates.map((d) => {
+        const c = cell(d);
+        const tone = !c
+          ? "text-slate-300"
+          : c.min <= 1
+            ? "bg-rose-50 text-rose-700 font-semibold"
+            : c.min === 2
+              ? "bg-amber-50 text-amber-800"
+              : "";
+        return (
+          <td
+            key={d}
+            className={`border-t border-l border-slate-200 px-1 py-1 text-center ${tone} ${
+              c?.short ? "outline outline-2 -outline-offset-2 outline-rose-500" : ""
+            }`}
+            title={c?.short ? `Thiếu: cần ít nhất ${c.need}` : undefined}
+          >
+            {c ? c.min : "–"}
+            {c?.short && <span className="block text-[10px] leading-none">cần {c.need}</span>}
+          </td>
+        );
+      })}
       <td className="border-t border-l border-slate-200" />
       <td className="border-t border-l border-slate-200" />
     </tr>

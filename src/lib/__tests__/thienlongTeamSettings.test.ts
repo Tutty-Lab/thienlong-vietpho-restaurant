@@ -6,6 +6,9 @@ import { DEFAULT_WORK_HOURS, resolveDay } from "../workHours";
 import { holidaysOf } from "../holidays";
 import { isEmployeeFixedDayOff } from "../fixedDaysOff";
 import { validateSchedule } from "../validation";
+import { isThienlongMonthRushDate } from "../thienlongDemand";
+import { withAutomaticAzubiTarget } from "../azubi";
+import { withEmploymentPeriodTarget } from "../employmentPeriod";
 
 // Thienlong-Team wie im Live-Stand (Aug 2026): 4 Köche mit 6 Tagen/Woche,
 // 4 Azubis mit 5 Tagen/Woche, 3 Aushilfen, 1 Vollzeit-Service ohne Tage/Woche.
@@ -51,23 +54,44 @@ describe("Thienlong with the real team settings", () => {
     ).toEqual([]);
   });
 
-  it("keeps at least 2 Bếp and 1 Bồi from 20:00 to 22:00 on Fri/Sat/Sun", () => {
+  it("keeps the minimum Bếp/Bồi at 14–17 and 20–22 on Fri/Sat/Sun", () => {
     const roleOf = (id: string) => team.find((e) => e.id === id)!.workRole;
+    const rule = [
+      { from: 14 * 60, to: 17 * 60, kitchen: 3 },
+      { from: 20 * 60, to: 22 * 60, kitchen: 2 },
+    ];
     for (const date of openDates) {
       const wd = new Date(`${date}T12:00:00`).getDay();
       if (![5, 6, 0].includes(wd)) continue;
-      for (let t = 20 * 60; t < 22 * 60; t += 30) {
-        const count = (role: string) =>
-          shifts.filter(
-            (s) =>
-              s.date === date &&
-              roleOf(s.employeeId) === role &&
-              (s.segments ?? [s]).some((g) => g.startMinutes <= t && g.endMinutes >= t + 30),
-          ).length;
-        expect(count("KITCHEN"), `${date} ${t / 60} Bếp`).toBeGreaterThanOrEqual(2);
-        expect(count("SERVICE"), `${date} ${t / 60} Bồi`).toBeGreaterThanOrEqual(1);
+      const day = resolveDay(DEFAULT_WORK_HOURS, date, holidays, {});
+      for (const w of rule) {
+        for (let t = w.from; t < w.to; t += 30) {
+          if (!day.blocks.some((b) => b.startMinutes <= t && b.endMinutes >= t + 30)) continue;
+          const count = (role: string) =>
+            shifts.filter(
+              (s) =>
+                s.date === date &&
+                roleOf(s.employeeId) === role &&
+                (s.segments ?? [s]).some((g) => g.startMinutes <= t && g.endMinutes >= t + 30),
+            ).length;
+          expect(count("KITCHEN"), `${date} ${t / 60} Bếp`).toBeGreaterThanOrEqual(w.kitchen);
+          expect(count("SERVICE"), `${date} ${t / 60} Bồi`).toBeGreaterThanOrEqual(1);
+        }
       }
     }
+  });
+
+  it("gives month-change weekdays (last day, 1st–3rd) a bit more than normal weekdays, less than Saturday", () => {
+    const hoursOn = (date: string) =>
+      shifts.filter((s) => s.date === date).reduce((sum, s) => sum + s.paidMinutes, 0);
+    const avg = (dates: string[]) => dates.reduce((sum, d) => sum + hoursOn(d), 0) / dates.length;
+    const weekday = (d: string) => new Date(`${d}T12:00:00`).getDay();
+    const rushWeekdays = openDates.filter((d) => isThienlongMonthRushDate(d) && [1, 2, 3, 4].includes(weekday(d)));
+    const normalWeekdays = openDates.filter((d) => !isThienlongMonthRushDate(d) && [1, 2, 3, 4].includes(weekday(d)));
+    const saturdays = openDates.filter((d) => weekday(d) === 6);
+    expect(rushWeekdays.length).toBeGreaterThan(0);
+    expect(avg(rushWeekdays)).toBeGreaterThan(avg(normalWeekdays));
+    expect(avg(rushWeekdays)).toBeLessThan(avg(saturdays));
   });
 
   it("works exactly the requested days per week (every non-fixed-off day when that is all there is)", () => {
@@ -171,5 +195,40 @@ describe("standard shifts anchored on the peaks", () => {
       holidayState: "BW",
     });
     expect(again).toEqual(shifts);
+  });
+});
+
+describe("Thienlong when Azubis are away (school) – nobody replaces them", () => {
+  const ctx = { year: 2026, month: 9, storeId: "thienlong", workHours: DEFAULT_WORK_HOURS, holidayState: "BW" as const };
+  const inSchool = (e: Employee, from: string): Employee =>
+    e.employmentType !== "AZUBI"
+      ? e
+      : withAutomaticAzubiTarget(
+          { ...e, azubi: { ...e.azubi!, inSchoolTerm: true, schoolTermStart: from, schoolTermEnd: "2026-12-31" } },
+          2026,
+          9,
+        );
+
+  it("all four Azubis in school the whole month (~1040 h left): targets exact, every rule holds", () => {
+    // Wie im Live-Stand (Sept 2026): Service-Vollzeit mit 6 Tagen/Woche.
+    const away = team
+      .map((e) => (e.id === "tl" ? { ...e, desiredDaysPerWeek: 6 } : e))
+      .map((e) => inSchool(e, "2026-09-01"));
+    expect(away.filter((e) => e.employmentType === "AZUBI").every((e) => e.targetMinutes === 0)).toBe(true);
+    const planned = generateSchedule({ ...ctx, employees: away });
+    for (const e of away) {
+      expect(planned.filter((s) => s.employeeId === e.id).reduce((sum, s) => sum + s.paidMinutes, 0), e.name)
+        .toBe(e.targetMinutes);
+    }
+    expect(validateSchedule(away, planned, ctx).errors).toEqual([]);
+  });
+
+  it("says plainly when a day simply has too few cooks", () => {
+    const away = team
+      .map((e) => inSchool(e, "2026-09-01"))
+      .map((e) => (e.id === "at" || e.id === "hl" ? withEmploymentPeriodTarget({ ...e, endDate: "2026-09-10" }, 2026, 9) : e));
+    const planned = generateSchedule({ ...ctx, employees: away });
+    const messages = validateSchedule(away, planned, ctx).errors.map((x) => x.message);
+    expect(messages.some((m) => m.includes("cần ít nhất 3 Bếp") && m.includes("không đủ người"))).toBe(true);
   });
 });

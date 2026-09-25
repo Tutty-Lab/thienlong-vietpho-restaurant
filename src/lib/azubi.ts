@@ -144,6 +144,19 @@ export function isAzubiSchoolTermDate(
   return isoDate >= range.start && isoDate <= range.end;
 }
 
+/**
+ * true = der Azubi ist an diesem Tag in der Berufsschule und wird NICHT
+ * eingeplant. Gilt nur mit konkretem Zeitraum (Von/Bis); Altdaten ohne Datum
+ * behalten das frühere Verhalten (Monatssoll von Hand, Tage frei planbar).
+ */
+export function isAzubiBlockedSchoolDate(
+  cfg: AzubiConfig | undefined,
+  isoDate: string,
+): boolean {
+  const range = azubiSchoolTermRange(cfg);
+  return !!range && isoDate >= range.start && isoDate <= range.end;
+}
+
 /** @deprecated Schultage blockieren keine Arbeitstage mehr. */
 export function isAzubiSchoolDate(
   _cfg: AzubiConfig | undefined,
@@ -198,10 +211,18 @@ export function azubiMonthlyHoursOverride(
   return azubiConfigOf(cfg).monthlyHoursByMonth?.[azubiMonthKey(year, month)];
 }
 
+/** Arbeitsmonats-Soll (ohne Schulzeit): Monatswert oder allgemeiner Wert. */
+function azubiWorkMonthHours(cfg: AzubiConfig, year: number, month: number): number {
+  return cfg.workMonthHoursByMonth?.[azubiMonthKey(year, month)] ?? azubiMonthlyHoursOutOfTerm(cfg);
+}
+
 /**
- * Wirksames Monatssoll:
- * - Monat im Schulzeitraum: exakte Eingabe fuer yyyy-MM, bis dahin 0 h
- * - Arbeitsmonat: allgemeines Monatssoll ausserhalb der Schulzeit
+ * Wirksames Monatssoll (Wunsch Chef, Sept 2026: in der Schulzeit wird NIE
+ * gearbeitet, und die App rechnet Azubi-Stunden NICHT selbst hoch/runter):
+ * - Monat ganz im Schulzeitraum: 0 h
+ * - Monat teils Schule, teils Arbeit: Eingabe des Chefs für yyyy-MM (sonst 0 h –
+ *   die Bereitschaftsprüfung verlangt dann eine Eingabe)
+ * - Arbeitsmonat: Eingabe für yyyy-MM, sonst allgemeines Monatssoll
  */
 export function azubiMonthlyHoursForMonth(
   cfg: AzubiConfig | undefined,
@@ -210,13 +231,16 @@ export function azubiMonthlyHoursForMonth(
 ): number {
   const normalized = azubiConfigOf(cfg);
   const mode = azubiMonthMode(normalized, year, month);
-  if (mode !== "work") {
+  if (mode === "school") {
+    // Mit Zeitraum: Schule den ganzen Monat => 0 h. Altdaten ohne Datum: Eingabe.
+    return azubiSchoolTermRange(normalized)
+      ? 0
+      : normalized.monthlyHoursByMonth?.[azubiMonthKey(year, month)] ?? 0;
+  }
+  if (mode === "mixed") {
     return normalized.monthlyHoursByMonth?.[azubiMonthKey(year, month)] ?? 0;
   }
-  return (
-    normalized.workMonthHoursByMonth?.[azubiMonthKey(year, month)] ??
-    azubiMonthlyHoursOutOfTerm(normalized)
-  );
+  return azubiWorkMonthHours(normalized, year, month);
 }
 
 /** Status shown on the printed/exported timesheet for the selected month. */
@@ -258,7 +282,7 @@ export function effectiveTargetMinutes(
   month: number,
 ): number {
   if (employee.employmentType !== "AZUBI") return employee.targetMinutes;
-  return azubiMonthlyMinutes(employee.azubi, year, month);
+  return withAutomaticAzubiTarget(employee, year, month).targetMinutes;
 }
 
 /** Migriert Azubi-Altdaten und synchronisiert das wirksame Monatssoll. */
@@ -270,6 +294,8 @@ export function withAutomaticAzubiTarget(
   if (employee.employmentType !== "AZUBI") return employee;
 
   const azubi = azubiConfigOf(employee.azubi);
+  // Keine automatische Kürzung (Ein-/Austritt, Schulbeginn): der Chef trägt
+  // das Soll für solche Monate selbst ein.
   const targetMinutes = azubiMonthlyMinutes(azubi, year, month);
   const oldConfig = employee.azubi;
   const configChanged =

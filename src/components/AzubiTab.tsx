@@ -209,6 +209,7 @@ export function AzubiTab({ store }: { store: UseScheduleReturn }) {
                     {termMonths.map(({ year, month }) => {
                       const key = azubiMonthKey(year, month);
                       const override = azubiMonthlyHoursOverride(cfg, year, month);
+                      const termMode = azubiMonthMode(cfg, year, month);
                       const warning = azubiMonthlyHoursNeedWarning(cfg, year, month);
                       const isSelectedMonth =
                         year === schedule.year && month === schedule.month;
@@ -234,6 +235,9 @@ export function AzubiTab({ store }: { store: UseScheduleReturn }) {
                             </div>
                           </div>
 
+                          {termMode === "school" ? (
+                            <span className="text-sm text-slate-500">0h · đi học cả tháng, không xếp ca</span>
+                          ) : (
                           <div className="sm:text-right">
                             <div className="flex items-center gap-2 sm:justify-end">
                               <input
@@ -242,7 +246,7 @@ export function AzubiTab({ store }: { store: UseScheduleReturn }) {
                                 min={0}
                                 step={0.5}
                                 value={override ?? ""}
-                                placeholder="0"
+                                placeholder="Nhập"
                                 aria-describedby={warning ? `${inputId}-warning` : undefined}
                                 onChange={(event) =>
                                   setTermMonthHours(year, month, event.target.value)
@@ -255,6 +259,11 @@ export function AzubiTab({ store }: { store: UseScheduleReturn }) {
                               />
                               <span className="text-xs text-slate-500">h/tháng</span>
                             </div>
+                            {override === undefined && (
+                              <p className="mt-1 text-xs font-medium text-amber-700">
+                                Chưa nhập giờ – chỉ xếp ca những ngày không đi học
+                              </p>
+                            )}
                             {warning && (
                               <p
                                 id={`${inputId}-warning`}
@@ -265,6 +274,7 @@ export function AzubiTab({ store }: { store: UseScheduleReturn }) {
                               </p>
                             )}
                           </div>
+                          )}
                         </div>
                       );
                     })}

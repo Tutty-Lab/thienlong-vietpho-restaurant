@@ -28,6 +28,8 @@ import {
   normalizeSurchargeConfig,
 } from "../lib/zuschlaege";
 import { isEmployeeFixedDayOff, normalizedFixedDaysOff } from "../lib/fixedDaysOff";
+import { withEmploymentPeriodTarget } from "../lib/employmentPeriod";
+import { isEmployeeAvailableOn } from "../lib/availability";
 import { listSavedMonths, mergeArchives, monthKey, switchMonth } from "../lib/monthArchive";
 
 function emptySchedule(store: StoreConfig): Schedule {
@@ -60,7 +62,11 @@ function normalizeEmployee(employee: Employee, year: number, month: number): Emp
   const { fixedStoreWeekPattern: _removed, ...rest } = employee as Employee & {
     fixedStoreWeekPattern?: boolean;
   };
-  return withAutomaticAzubiTarget(normalizedFixedDaysOff(rest), year, month);
+  return withEmploymentPeriodTarget(
+    withAutomaticAzubiTarget(normalizedFixedDaysOff(rest), year, month),
+    year,
+    month,
+  );
 }
 
 /** Migriert einen (evtl. alten) gespeicherten Stand auf das aktuelle Schema. */
@@ -211,7 +217,11 @@ export function useSchedule() {
     setSchedule((s) => {
       let changed = false;
       const employees = s.employees.map((e) => {
-        const next = withAutomaticAzubiTarget(e, s.year, s.month);
+        const next = withEmploymentPeriodTarget(
+          withAutomaticAzubiTarget(e, s.year, s.month),
+          s.year,
+          s.month,
+        );
         if (next !== e) changed = true;
         return next;
       });
@@ -236,8 +246,10 @@ export function useSchedule() {
         requireWorkRole: storeId === "thienlong",
         requireFixedDaysOff: storeId === "thienlong" || storeId === "vietpho",
         storeId,
+        year: schedule.year,
+        month: schedule.month,
       }),
-    [schedule.employees, storeId],
+    [schedule.employees, storeId, schedule.year, schedule.month],
   );
 
   /**
@@ -448,7 +460,7 @@ export function useSchedule() {
         const exists = s.shifts.some((sh) => sh.employeeId === employeeId && sh.date === date);
         if (exists) return s;
         const employee = s.employees.find((candidate) => candidate.id === employeeId);
-        if (employee && isEmployeeFixedDayOff(employee, date)) {
+        if (employee && (isEmployeeFixedDayOff(employee, date) || !isEmployeeAvailableOn(employee, date))) {
           return s;
         }
         return { ...s, shifts: [...s.shifts, createManualShift(employeeId, date, start, end, pause)] };
@@ -479,7 +491,10 @@ export function useSchedule() {
       );
       if (conflict) return s;
       const targetEmployee = s.employees.find((employee) => employee.id === targetEmployeeId);
-      if (targetEmployee && isEmployeeFixedDayOff(targetEmployee, shift.date)) {
+      if (
+        targetEmployee &&
+        (isEmployeeFixedDayOff(targetEmployee, shift.date) || !isEmployeeAvailableOn(targetEmployee, shift.date))
+      ) {
         return s;
       }
       return {

@@ -25,6 +25,7 @@ import {
   type WorkRole,
 } from "../types";
 import { isEmployeeFixedDayOff } from "./fixedDaysOff";
+import { isEmployeeAvailableOn } from "./availability";
 import { TEILZEIT_SHIFT_HOURS, teilzeitShiftCount } from "./splitTargetHours";
 import {
   DAY_WEIGHTS,
@@ -57,10 +58,10 @@ import {
   demandCoverageGain,
   demandCoverageGap,
   thienlongDemandIntervals,
-  thienlongDemandWeight,
   thienlongLateShiftRatio,
   thienlongMealPeakDemand,
-  thienlongLateMinStaff,
+  thienlongDateWeight,
+  thienlongMinStaffWindows,
   thienlongMealPeakIntervals,
   thienlongStaffingProfile,
 } from "./thienlongDemand";
@@ -918,7 +919,7 @@ function matchesEmployeeDayRules(
   employee: Employee,
   isoDate: string,
 ): boolean {
-  return !isEmployeeFixedDayOff(employee, isoDate);
+  return !isEmployeeFixedDayOff(employee, isoDate) && isEmployeeAvailableOn(employee, isoDate);
 }
 
 /**
@@ -1168,7 +1169,7 @@ function placeRigidShifts(state: SchedulerState): void {
   );
   const weightOf = (employee: Employee, d: string) =>
     (employee.workRole && state.paceWeight.get(employee.workRole)?.get(d)) ||
-    thienlongDemandWeight(weekdayKeyOf(parseIsoDate(d)), state.holidays.has(d));
+    thienlongDateWeight(d, state.holidays.has(d));
 
   const plans = new Map(
     rigid.map((e) => [
@@ -1261,10 +1262,7 @@ function placeOneShift(state: SchedulerState, employee: Employee): boolean {
     if (weekCap !== null && (weekUsed.get(weekKey) ?? 0) >= weekCap) continue;
     eligibleByWeek.set(weekKey, (eligibleByWeek.get(weekKey) ?? 0) + 1);
     if (state.isThienlong) {
-      eligibleWeightSum += thienlongDemandWeight(
-        weekdayKeyOf(parseIsoDate(isoDate)),
-        state.holidays.has(isoDate),
-      );
+      eligibleWeightSum += thienlongDateWeight(isoDate, state.holidays.has(isoDate));
       eligibleCount += 1;
     }
   }
@@ -1336,7 +1334,7 @@ function placeOneShift(state: SchedulerState, employee: Employee): boolean {
     // Längste Schicht, die ins Fenster passt UND den Rest exakt aufteilbar lässt.
     const profile = state.isVietpho ? "vietpho" : state.isThienlong ? "thienlong" : "default";
     const pacedWeight = planned !== null
-      ? thienlongDemandWeight(weekdayKeyOf(parseIsoDate(isoDate)), state.holidays.has(isoDate))
+      ? thienlongDateWeight(isoDate, state.holidays.has(isoDate))
       : 1;
     const hours = planned !== null
       ? choosePacedHours(
@@ -1376,10 +1374,7 @@ function placeOneShift(state: SchedulerState, employee: Employee): boolean {
       ? (roleTargetMin - rolePaidOn(state, employee.workRole!, isoDate)) / 60
       : (state.rawTarget.get(isoDate)! - ds.totalPaid) / 60;
     const dayWeight = state.isThienlong
-      ? thienlongDemandWeight(
-          weekdayKeyOf(parseIsoDate(isoDate)),
-          state.holidays.has(isoDate),
-        )
+      ? thienlongDateWeight(isoDate, state.holidays.has(isoDate))
       : state.isVietpho
         ? vietphoDemandWeight(
             weekdayKeyOf(parseIsoDate(isoDate)),
@@ -2246,6 +2241,8 @@ function repairRoleGaps(state: SchedulerState): boolean {
             shiftType: "CUSTOM",
           };
           const extra = whole - a.paidMinutes;
+          // Würde die Schicht kürzer, gingen Stunden verloren (Monatssoll!) – nicht so.
+          if (extra < 0) continue;
           for (const b of lunchOnlyOf(roleShifts)) {
             if (b === a || done) continue;
             const len = b.endMinutes - b.startMinutes;
@@ -2646,12 +2643,16 @@ function optimizeThienlongPlacement(
       if (pl.dinner) dinnerCount.set(roleOf(sh), dinnerCount.get(roleOf(sh))! + 1);
     }
     const total = (i: number) => roles.reduce((acc, r) => acc + have.get(r)![i], 0);
-    // Harte Mindestköpfe je Slot (Fr/Sa/So 20–22 Uhr: 2 Bếp, 1 Bồi).
+    // Harte Mindestköpfe je Slot (Fr/Sa/So: 14–17 Uhr 3 Bếp, 20–22 Uhr 2 Bếp,
+    // jeweils 1 Bồi).
     const minHeads = new Map<WorkRole, number[]>();
     for (const role of roles) {
-      const late = thienlongLateMinStaff(weekday, role);
+      const windows = thienlongMinStaffWindows(weekday, role);
       minHeads.set(role, slots.map((t) =>
-        late && t >= late.startMinutes && t + SLOT <= late.endMinutes ? late.minStaff : 0,
+        windows.reduce(
+          (max, w) => (t >= w.startMinutes && t + SLOT <= w.endMinutes ? Math.max(max, w.minStaff) : max),
+          0,
+        ),
       ));
     }
     const slotCost = (role: WorkRole, i: number, count: number) =>
@@ -3081,7 +3082,7 @@ function azubiCapacityMinutes(
   const perWeek = new Map<string, number>();
   for (const d of dates) {
     const day = dayOf(d);
-    if (day.closed || isEmployeeFixedDayOff(employee, d)) continue;
+    if (day.closed || isEmployeeFixedDayOff(employee, d) || !isEmployeeAvailableOn(employee, d)) continue;
     const k = weekKeyOf(d);
     perWeek.set(k, (perWeek.get(k) ?? 0) + Math.min(MAX_DAILY_MINUTES, maxPaidForDay(day)));
   }
@@ -3122,10 +3123,7 @@ export function generateSchedule(input: GenerateInput): Shift[] {
   const weightOf = (isoDate: string): number => {
     if (dayOf(isoDate).closed) return 0;
     return isThienlong
-      ? thienlongDemandWeight(
-          weekdayKeyOf(parseIsoDate(isoDate)),
-          holidays.has(isoDate),
-        )
+      ? thienlongDateWeight(isoDate, holidays.has(isoDate))
       : isVietpho
         ? vietphoDemandWeight(
             weekdayKeyOf(parseIsoDate(isoDate)),

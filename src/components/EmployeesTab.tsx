@@ -10,9 +10,16 @@ import {
 } from "../types";
 import { splitTargetHours, teilzeitShiftCount } from "../lib/splitTargetHours";
 import {
+  activeDaysInMonth,
+  employmentPeriodLabel,
+  fullMonthTargetMinutes,
+  prorateForEmploymentPeriod,
+} from "../lib/employmentPeriod";
+import {
   azubiConfigOf,
   azubiMonthKey,
   azubiMonthMode,
+  azubiSchoolTermRange,
   azubiMonthlyHoursNeedWarning,
   azubiMonthlyHoursForMonth,
 } from "../lib/azubi";
@@ -66,6 +73,8 @@ type Draft = {
   saved: boolean;
   fixedDaysOff: WeekdayName[];
   azubi: AzubiConfig;
+  startDate: string;
+  endDate: string;
 };
 
 function draftFrom(emp?: Employee): Draft {
@@ -73,11 +82,13 @@ function draftFrom(emp?: Employee): Draft {
     name: emp?.name ?? "",
     employmentType: emp?.employmentType ?? "VOLLZEIT",
     workRole: emp?.workRole ?? "",
-    hours: emp ? String(emp.targetMinutes / 60) : "176",
+    hours: emp ? String(fullMonthTargetMinutes(emp) / 60) : "176",
     daysPerWeek: emp?.desiredDaysPerWeek ? String(emp.desiredDaysPerWeek) : "",
     saved: emp?.saved === true,
     fixedDaysOff: emp?.fixedDaysOff ?? [],
     azubi: azubiConfigOf(emp?.azubi),
+    startDate: emp?.startDate ?? "",
+    endDate: emp?.endDate ?? "",
   };
 }
 
@@ -90,6 +101,10 @@ function draftToEmployee(d: Draft): Omit<Employee, "id"> {
     // Bei Azubi wird targetMinutes vom Hook (withAutomaticAzubiTarget) aus der
     // Konfiguration neu berechnet; hier nur ein Platzhalter.
     targetMinutes: isAzubi ? 0 : stunden * 60,
+    // Voll-Monatssoll neu eingetragen; die anteilige Kürzung rechnet der Hook.
+    baseTargetMinutes: undefined,
+    startDate: d.startDate || undefined,
+    endDate: d.endDate || undefined,
     azubi: isAzubi ? d.azubi : undefined,
     workRole: d.workRole || undefined,
     saved: d.saved || undefined,
@@ -212,7 +227,8 @@ function EmployeeSummaryRow({
   const isAzubi = emp.employmentType === "AZUBI";
   const azubiConfig = isAzubi ? azubiConfigOf(emp.azubi) : null;
   const azubiMonthlyHours = azubiConfig ? azubiMonthlyHoursForMonth(azubiConfig, year, month) : 0;
-  const stunden = emp.targetMinutes / 60;
+  const fullMonth = isAzubi ? azubiMonthlyHours * 60 : fullMonthTargetMinutes(emp);
+  const stunden = fullMonthTargetMinutes(emp) / 60;
   const info = isAzubi
     ? { ok: true, text: `${azubiMonthlyHours}h · Azubi` }
     : splitInfo(stunden, emp.employmentType);
@@ -252,6 +268,12 @@ function EmployeeSummaryRow({
         {emp.desiredDaysPerWeek ? (
           <span className="text-slate-400">· {emp.desiredDaysPerWeek} ngày/tuần</span>
         ) : null}
+        {(emp.startDate || emp.endDate) && (
+          <span className="text-violet-700">
+            · {employmentPeriodLabel(emp)}
+            {emp.targetMinutes !== fullMonth && ` → tháng này ${emp.targetMinutes / 60}h`}
+          </span>
+        )}
       </div>
     </div>
   );
@@ -288,6 +310,7 @@ function EmployeeSheet({
   const azubiMode = azubiMonthMode(d.azubi, year, month);
   const azubiMonthlyHours = azubiMonthlyHoursForMonth(d.azubi, year, month);
   const azubiWarning = azubiMonthlyHoursNeedWarning(d.azubi, year, month);
+  const schoolWholeMonth = azubiMode === "school" && !!azubiSchoolTermRange(d.azubi);
 
   const setAzubiHours = (value: number) => {
     const v = Math.max(0, value);
@@ -306,6 +329,20 @@ function EmployeeSheet({
 
   const requiredDaysOff = requiredFixedDaysOff(d.employmentType);
   const draftEmp: Employee = { id: "draft", ...draftToEmployee(d) };
+  const monthDays = new Date(year, month, 0).getDate();
+  const activeDays = activeDaysInMonth(draftEmp, year, month);
+  const fullMinutes = stunden * 60;
+  const periodPreview = d.endDate && d.startDate && d.endDate < d.startDate
+    ? "Ngày nghỉ việc phải sau ngày vào làm."
+    : isAzubi && activeDays < monthDays
+      ? `Tháng ${month}/${year}: làm ${activeDays}/${monthDays} ngày. Azubi không tự tính giờ – hãy nhập giờ riêng cho tháng này ở tab Azubi.`
+      : activeDays >= monthDays
+      ? `Bỏ trống = làm cả tháng. Tháng ${month}/${year}: làm đủ tháng.`
+      : activeDays === 0
+        ? `Tháng ${month}/${year}: không làm ngày nào → 0h, không xếp lịch.`
+        : `Tháng ${month}/${year}: làm ${activeDays}/${monthDays} ngày → khoảng ${
+            prorateForEmploymentPeriod(fullMinutes, draftEmp, year, month) / 60
+          }h (tính theo tỉ lệ ngày).`;
   const daysOffOk = hasRequiredFixedDaysOff(draftEmp);
 
   const toggleDayOff = (weekday: WeekdayName) => {
@@ -392,10 +429,22 @@ function EmployeeSheet({
                   step={0.5}
                   className={`${inputClass} w-32 ${azubiWarning ? "border-amber-400 text-amber-900" : ""}`}
                   value={azubiMonthlyHours}
+                  disabled={schoolWholeMonth}
                   onChange={(e) => setAzubiHours(Number(e.target.value))}
                 />
                 <span className="text-slate-400 text-sm">h</span>
               </div>
+              {schoolWholeMonth && (
+                <span className="mt-1 block text-[11px] text-slate-500">
+                  Đi học cả tháng – không xếp ca (sửa kỳ học ở tab Azubi).
+                </span>
+              )}
+              {azubiMode === "mixed" && (
+                <span className="mt-1 block text-[11px] text-slate-500">
+                  Tháng vừa học vừa làm: chỉ xếp ca những ngày không đi học. Hãy nhập giờ
+                  cho tháng này.
+                </span>
+              )}
               {azubiWarning && (
                 <span className="mt-1 block text-[11px] text-amber-700">
                   Trên {AZUBI_MONTHLY_WARNING_HOURS}h/tháng lịch có thể khó xếp; số giờ vẫn giữ.
@@ -442,6 +491,35 @@ function EmployeeSheet({
                 cố định); giờ tháng được chia ra các ngày đó, cuối tuần dài hơn một chút.
               </span>
             </label>
+
+          {/* Ngày vào làm / nghỉ việc */}
+          <div>
+            <div className="grid grid-cols-2 gap-3">
+              <label className="block">
+                <span className="text-xs text-slate-600">Ngày vào làm (tùy chọn)</span>
+                <input
+                  type="date"
+                  className={`${inputClass} w-full mt-1`}
+                  value={d.startDate}
+                  max={d.endDate || undefined}
+                  onChange={(e) => set("startDate", e.target.value)}
+                />
+              </label>
+              <label className="block">
+                <span className="text-xs text-slate-600">Ngày nghỉ việc (tùy chọn)</span>
+                <input
+                  type="date"
+                  className={`${inputClass} w-full mt-1`}
+                  value={d.endDate}
+                  min={d.startDate || undefined}
+                  onChange={(e) => set("endDate", e.target.value)}
+                />
+              </label>
+            </div>
+            <span className="mt-1 block text-xs text-slate-500">
+              {periodPreview}
+            </span>
+          </div>
 
           {/* Lưu */}
           <div className="flex flex-wrap gap-4 border-t border-slate-100 pt-3">

@@ -249,7 +249,18 @@ export function DocsTab({ storeId }: { storeId: string }) {
             và thao tác chuyển ca đều không được xếp vào các ngày đó.
           </li>
           {isThienlong ? (
-            <li>Mỗi ngày mở cửa có ít nhất <b>2 nhân viên đến trước giờ mở cửa 30 phút</b>.</li>
+            <>
+              <li>Mỗi ngày mở cửa có ít nhất <b>2 nhân viên đến trước giờ mở cửa 30 phút</b>.</li>
+              <li>
+                <b>Thứ 6, Thứ 7, Chủ Nhật</b>: từ{" "}
+                <b>14:00–17:00</b> ít nhất <b>3 Bếp + 1 Bồi</b>; từ <b>20:00–22:00</b> ít nhất{" "}
+                <b>2 Bếp + 1 Bồi</b>.
+              </li>
+              <li>
+                <b>Ngày cuối tháng (30/31) và mồng 1–3</b> (ưu tiên mềm, xếp khi có thể): hơi đông
+                hơn ngày thường (trọng số 1,15), nhưng ít hơn Thứ 7 (1,35); không có mức tối thiểu.
+              </li>
+            </>
           ) : (
             <li>
               Không xếp ca trước giờ mở cửa; hai giờ cao điểm có ít nhất <b>2 nhân viên</b>.

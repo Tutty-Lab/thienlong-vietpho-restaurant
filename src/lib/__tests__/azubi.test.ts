@@ -115,7 +115,7 @@ describe("Azubi trong kỳ học", () => {
     );
   });
 
-  it("scheduler bỏ qua ngày học cũ khi tháng được nhập giờ làm", () => {
+  it("không xếp ca nào trong kỳ học có ngày cụ thể, kể cả khi có giờ nhập cũ", () => {
     const employee = employeeWithConfig({
       inSchoolTerm: true,
       schoolTermStart: "2026-08-01",
@@ -139,7 +139,9 @@ describe("Azubi trong kỳ học", () => {
       holidayState: "BW",
     });
 
-    expect(shifts.reduce((sum, shift) => sum + shift.paidMinutes, 0)).toBe(40 * 60);
+    // Wunsch Chef (Sept 2026): in der Schulzeit wird nie gearbeitet.
+    expect(employee.targetMinutes).toBe(0);
+    expect(shifts).toEqual([]);
   });
 
   it("ngày học cũ không còn chặn ca khi tháng có giờ làm", () => {
@@ -189,12 +191,13 @@ describe("Azubi có kỳ học theo khoảng ngày", () => {
     expect(azubiMonthMode(ranged, 2026, 9)).toBe("work");
 
     expect(azubiMonthlyMinutes(ranged, 2026, 6)).toBe(48 * 60);
-    expect(azubiMonthlyMinutes(ranged, 2026, 7)).toBe(80 * 60);
+    // Ganzer Monat Schule => 0 h, auch wenn früher Stunden eingetragen waren.
+    expect(azubiMonthlyMinutes(ranged, 2026, 7)).toBe(0);
     expect(azubiMonthlyMinutes(ranged, 2026, 8)).toBe(30 * 60);
     expect(azubiMonthlyMinutes(ranged, 2026, 9)).toBe(154 * 60);
   });
 
-  it("dùng giờ chủ nhập riêng cho từng tháng, không tự chia theo tỷ lệ ngày", () => {
+  it("dùng giờ chủ nhập cho tháng học/làm, không tự tính (bỏ trống = 0h)", () => {
     const withoutOverrides: AzubiConfig = {
       ...ranged,
       monthlyHoursByMonth: undefined,
@@ -202,8 +205,9 @@ describe("Azubi có kỳ học theo khoảng ngày", () => {
 
     expect(azubiMonthKey(2026, 6)).toBe("2026-06");
     expect(azubiMonthlyHoursOverride(ranged, 2026, 6)).toBe(48);
-    expect(azubiMonthlyHoursForMonth(ranged, 2026, 7)).toBe(80);
+    expect(azubiMonthlyHoursForMonth(ranged, 2026, 7)).toBe(0);
     expect(azubiMonthlyHoursForMonth(ranged, 2026, 8)).toBe(30);
+    // Keine automatische Berechnung – ohne Eingabe 0 h (Bereitschaft verlangt Eingabe).
     expect(azubiMonthlyHoursForMonth(withoutOverrides, 2026, 6)).toBe(0);
     expect(azubiMonthlyHoursForMonth(withoutOverrides, 2026, 8)).toBe(0);
   });
@@ -243,7 +247,7 @@ describe("Azubi có kỳ học theo khoảng ngày", () => {
     }
   });
 
-  it("validation không phụ thuộc ngày học cũ trong hoặc ngoài kỳ", () => {
+  it("validation báo lỗi ca nằm trong kỳ học, không báo ca trước kỳ học", () => {
     const employee = employeeWithConfig(ranged);
     const result = validateSchedule(
       [employee],
@@ -254,9 +258,11 @@ describe("Azubi có kỳ học theo khoảng ngày", () => {
       ],
     );
 
-    expect(result.errors.some((error) => error.date === "2026-06-29")).toBe(false);
-    expect(result.errors.some((error) => error.date === "2026-06-25")).toBe(false);
-    expect(result.errors.some((error) => error.date === "2026-06-24")).toBe(false);
+    const schoolError = (date: string) =>
+      result.errors.some((error) => error.date === date && error.message.includes("đi học"));
+    expect(schoolError("2026-06-29")).toBe(true);
+    expect(schoolError("2026-06-25")).toBe(true);
+    expect(schoolError("2026-06-24")).toBe(false);
   });
 });
 
@@ -439,6 +445,21 @@ describe("Trạng thái Azubi trên bản in và PDF", () => {
           schoolTermEnd: "2026-08-31",
           schoolDays: [],
           monthlyHoursByMonth: { "2026-08": 34 },
+        },
+        2026,
+        8,
+      ),
+    ).toBe("off");
+
+    expect(
+      azubiTimesheetMode(
+        {
+          inSchoolTerm: true,
+          schoolTermStart: "2026-08-15",
+          schoolTermEnd: "2026-09-30",
+          schoolDays: [],
+          monthlyHoursOutOfTerm: 154,
+          monthlyHoursByMonth: { "2026-08": 70 },
         },
         2026,
         8,

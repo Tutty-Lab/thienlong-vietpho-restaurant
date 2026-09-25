@@ -15,8 +15,9 @@ import { holidaysOf, type HolidayState } from "./holidays";
 import { resolveDay, type OverrideMap, type WorkHoursConfig } from "./workHours";
 import { vietphoPeakIntervals } from "./vietphoDemand";
 import { isEmployeeFixedDayOff } from "./fixedDaysOff";
+import { unavailableReason } from "./availability";
 import { worksDinner, worksLunch } from "./shiftMeals";
-import { thienlongLateMinStaff } from "./thienlongDemand";
+import { thienlongMinStaffWindows } from "./thienlongDemand";
 
 export type ValidationError = {
   employeeId?: string;
@@ -128,6 +129,14 @@ export function validateSchedule(
         });
       }
       seenDates.add(shift.date);
+      const inactive = unavailableReason(emp, shift.date);
+      if (inactive) {
+        errors.push({
+          employeeId: emp.id,
+          date: shift.date,
+          message: `${emp.name}: ngày ${shift.date} ${inactive.toLowerCase()} (không được xếp ca).`,
+        });
+      }
       if (isEmployeeFixedDayOff(emp, shift.date)) {
         errors.push({
           employeeId: emp.id,
@@ -219,7 +228,38 @@ export function validateSchedule(
       // Thienlong: kein 30-Minuten-Slot ohne Bếp bzw. ohne Bồi.
       if (context.storeId === "thienlong") {
         const roleById = new Map(employees.map((e) => [e.id, e.workRole] as const));
+        const nameById = new Map(employees.map((e) => [e.id, e.name] as const));
         const dayShifts = shifts.filter((shift) => shift.date === date);
+        const presentAt = (role: "KITCHEN" | "SERVICE", t: number) =>
+          dayShifts.filter(
+            (shift) =>
+              roleById.get(shift.employeeId) === role &&
+              (shift.segments ?? [shift]).some(
+                (segment) => segment.startMinutes <= t && segment.endMinutes >= t + 30,
+              ),
+          );
+        const kitchenNeed = (t: number) =>
+          thienlongMinStaffWindows(weekdayKeyOf(parseIsoDate(date)), "KITCHEN").reduce(
+            (max, w) => (t >= w.startMinutes && t + 30 <= w.endMinutes ? Math.max(max, w.minStaff) : max),
+            1,
+          );
+        // Wie viele dieser Rolle können an dem Tag überhaupt arbeiten?
+        const availableCount = (role: "KITCHEN" | "SERVICE") =>
+          employees.filter(
+            (e) =>
+              e.workRole === role &&
+              e.targetMinutes > 0 &&
+              !isEmployeeFixedDayOff(e, date) &&
+              unavailableReason(e, date) === null,
+          ).length;
+        // Thiếu Bồi mà Bếp dư người đúng lúc đó → gợi ý cho một Bếp phụ Bồi.
+        const kitchenHelpHint = (times: number[]): string => {
+          if (times.length === 0) return "";
+          const spare = times.every((t) => presentAt("KITCHEN", t).length > kitchenNeed(t));
+          if (!spare) return "";
+          const names = [...new Set(presentAt("KITCHEN", times[0]).map((sh) => nameById.get(sh.employeeId)))];
+          return ` Gợi ý: cho 1 Bếp phụ Bồi lúc đó (đang có ${names.join(", ")}).`;
+        };
         for (const role of ["KITCHEN", "SERVICE"] as const) {
           if (!employees.some((e) => e.workRole === role && e.targetMinutes > 0)) continue;
           const roleShifts = dayShifts.filter((shift) => roleById.get(shift.employeeId) === role);
@@ -247,27 +287,34 @@ export function validateSchedule(
               message: `Ngày ${date}: ${label} tối (${dinner}) ít hơn trưa (${lunch}).`,
             });
           }
-          // Fr/Sa/So 20–22 Uhr: Mindestbesetzung je Rolle.
-          const late = thienlongLateMinStaff(weekdayKeyOf(parseIsoDate(date)), role);
-          if (late) {
+          // Fr/Sa/So: Mindestbesetzung je Rolle (14–17, 20–22 Uhr).
+          const windows = thienlongMinStaffWindows(weekdayKeyOf(parseIsoDate(date)), role);
+          for (const w of windows) {
             const short: number[] = [];
-            for (let t = late.startMinutes; t + 30 <= late.endMinutes; t += 30) {
+            for (let t = w.startMinutes; t + 30 <= w.endMinutes; t += 30) {
               if (!day.blocks.some((b) => b.startMinutes <= t && b.endMinutes >= t + 30)) continue;
               const count = roleShifts.filter((shift) =>
                 (shift.segments ?? [shift]).some(
                   (segment) => segment.startMinutes <= t && segment.endMinutes >= t + 30,
                 ),
               ).length;
-              if (count < late.minStaff) short.push(t);
+              if (count < w.minStaff) short.push(t);
             }
             if (short.length > 0) {
               const label = role === "KITCHEN" ? "Bếp" : "Bồi";
+              const available = availableCount(role);
+              const notEnough =
+                available < w.minStaff
+                  ? ` Hôm nay chỉ có ${available} ${label} đi làm được (nghỉ cố định/đi học/nghỉ việc) – không đủ người.`
+                  : "";
               errors.push({
                 date,
                 message:
-                  `Ngày ${date}: cần ít nhất ${late.minStaff} ${label} từ ` +
-                  `${minutesToTime(late.startMinutes)}–${minutesToTime(late.endMinutes)} ` +
-                  `(thiếu lúc ${short.map(minutesToTime).join(", ")}).`,
+                  `Ngày ${date}: cần ít nhất ${w.minStaff} ${label} từ ` +
+                  `${minutesToTime(w.startMinutes)}–${minutesToTime(w.endMinutes)} ` +
+                  `(thiếu lúc ${short.map(minutesToTime).join(", ")}).` +
+                  notEnough +
+                  (role === "SERVICE" ? kitchenHelpHint(short) : ""),
               });
             }
           }
@@ -276,7 +323,17 @@ export function validateSchedule(
             const text = ranges
               .map(([a, b]) => `${minutesToTime(a)}–${minutesToTime(b)}`)
               .join(", ");
-            errors.push({ date, message: `Ngày ${date}: không có ${label} lúc ${text}.` });
+            const slots = ranges.flatMap(([a, b]) => {
+              const out: number[] = [];
+              for (let t = a; t < b; t += 30) out.push(t);
+              return out;
+            });
+            errors.push({
+              date,
+              message:
+                `Ngày ${date}: không có ${label} lúc ${text}.` +
+                (role === "SERVICE" ? kitchenHelpHint(slots) : ""),
+            });
           }
         }
       }

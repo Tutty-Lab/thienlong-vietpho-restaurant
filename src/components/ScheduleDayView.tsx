@@ -13,7 +13,9 @@ import {
 import { minutesToShortHours, minutesToTime } from "../lib/time";
 import { isoLabel } from "../lib/shiftOps";
 import { holidayNames as holidayNamesOf } from "../lib/holidays";
+import { isThienlongMonthRushDate } from "../lib/thienlongDemand";
 import { isEmployeeFixedDayOff } from "../lib/fixedDaysOff";
+import { isEmployeeAvailableOn } from "../lib/availability";
 import { ShiftTimes } from "./ShiftTimes";
 
 /** Chế độ xem theo từng ngày – tối ưu cho điện thoại (không cuộn ngang). */
@@ -65,7 +67,10 @@ export function ScheduleDayView({
         roleOrder(a) - roleOrder(b) ||
         shiftByEmp.get(a.id)!.startMinutes - shiftByEmp.get(b.id)!.startMinutes,
     );
-  const free = schedule.employees.filter((e) => !shiftByEmp.has(e.id));
+  // Wer an diesem Tag (noch) nicht / nicht mehr beschäftigt ist, erscheint nicht.
+  const free = schedule.employees.filter(
+    (e) => !shiftByEmp.has(e.id) && isEmployeeAvailableOn(e, selectedDate),
+  );
 
   const totalMin = shiftsOfDay.reduce((a, s) => a + s.paidMinutes, 0);
   const kitchenCount = working.filter((e) => e.workRole === "KITCHEN").length;
@@ -75,6 +80,8 @@ export function ScheduleDayView({
   const holiday = holidayNames.get(selectedDate);
   const weekdayKey = weekdayKeyOf(parseIsoDate(selectedDate));
   const isWeekend = weekdayKey === "saturday" || weekdayKey === "sunday";
+  const isThienlong = store.storeId === "thienlong";
+  const isRush = isThienlong && isThienlongMonthRushDate(selectedDate);
 
   function chipClass(iso: string): string {
     const o = overridesByDate.get(iso);
@@ -126,6 +133,11 @@ export function ScheduleDayView({
         {holiday && (
           <span className="rounded-full bg-amber-100 text-amber-800 text-xs px-2 py-0.5 font-medium">
             Lễ: {holiday}
+          </span>
+        )}
+        {isRush && (
+          <span className="rounded-full bg-violet-100 text-violet-700 text-xs px-2 py-0.5 font-medium">
+            Hơi đông (đầu/cuối tháng)
           </span>
         )}
         {!ov && !holiday && isWeekend && (

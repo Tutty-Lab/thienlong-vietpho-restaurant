@@ -68,8 +68,17 @@ export type Employee = {
   id: string;
   name: string;
   employmentType: EmploymentType;
-  /** Monatliches Soll in Minuten (Integer). 176 h => 10560. */
+  /**
+   * Wirksames Monatssoll in Minuten (Integer). 176 h => 10560. Bei Ein-/Austritt
+   * im Monat anteilig gekürzt (siehe employmentPeriod.ts).
+   */
   targetMinutes: number;
+  /** Eingetragenes Voll-Monatssoll, nur gesetzt, solange targetMinutes gekürzt ist. */
+  baseTargetMinutes?: number;
+  /** Ngày vào làm (yyyy-MM-dd, inklusiv). Davor wird nicht eingeplant. */
+  startDate?: string;
+  /** Ngày nghỉ việc = letzter Arbeitstag (yyyy-MM-dd, inklusiv). Danach nicht mehr. */
+  endDate?: string;
   /** Nur bei employmentType === "AZUBI" gesetzt. */
   azubi?: AzubiConfig;
   /** Bếp (KITCHEN) oder Bồi (SERVICE), wenn die Person fest zugeordnet ist. */

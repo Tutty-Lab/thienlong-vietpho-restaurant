@@ -1,5 +1,6 @@
 import type { Employee } from "../types";
 import { hasRequiredFixedDaysOff } from "./fixedDaysOff";
+import { azubiMonthMode, azubiMonthlyHoursOverride, azubiSchoolTermRange } from "./azubi";
 
 export type ScheduleReadiness = {
   ready: boolean;
@@ -12,6 +13,9 @@ export function checkScheduleReadiness(
     requireWorkRole?: boolean;
     requireFixedDaysOff?: boolean;
     storeId?: string;
+    /** Geplanter Monat – für die Prüfung der Azubi-Monatseingabe. */
+    year?: number;
+    month?: number;
   } = {},
 ): ScheduleReadiness {
   const issues: string[] = [];
@@ -23,9 +27,13 @@ export function checkScheduleReadiness(
   if (employees.some((employee) => employee.saved !== true)) {
     issues.push("Hãy xác nhận lưu thông tin của tất cả nhân viên.");
   }
+  // Wer im ganzen Monat nicht beschäftigt ist (Ein-/Austritt), hat 0 h – das ist korrekt.
+  const outOfPeriod = (employee: Employee) =>
+    employee.baseTargetMinutes !== undefined && employee.targetMinutes === 0;
   if (
     employees.some(
-      (employee) => employee.employmentType !== "AZUBI" && employee.targetMinutes <= 0,
+      (employee) =>
+        employee.employmentType !== "AZUBI" && employee.targetMinutes <= 0 && !outOfPeriod(employee),
     )
   ) {
     issues.push("Nhân viên thường phải có định mức lớn hơn 0 giờ.");
@@ -65,6 +73,26 @@ export function checkScheduleReadiness(
     )
   ) {
     issues.push("Azubi phải chọn đúng 2 ngày nghỉ cố định mỗi tuần.");
+  }
+
+  // Azubi-Stunden rechnet die App nicht selbst: Monat mit Schulbeginn/-ende
+  // braucht eine Eingabe des Chefs (0 ist erlaubt).
+  if (options.year !== undefined && options.month !== undefined) {
+    const { year, month } = options;
+    const missing = employees.filter(
+      (employee) =>
+        employee.employmentType === "AZUBI" &&
+        azubiMonthMode(employee.azubi, year, month) === "mixed" &&
+        azubiSchoolTermRange(employee.azubi) !== null &&
+        azubiMonthlyHoursOverride(employee.azubi, year, month) === undefined,
+    );
+    if (missing.length > 0) {
+      issues.push(
+        `Tháng ${month}/${year} vừa học vừa làm – hãy nhập giờ làm tháng này ở tab Azubi cho: ${missing
+          .map((employee) => employee.name)
+          .join(", ")}.`,
+      );
+    }
   }
 
   return { ready: issues.length === 0, issues };

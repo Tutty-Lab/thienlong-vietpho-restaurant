@@ -165,15 +165,35 @@ export function thienlongMealPeakIntervals(): readonly {
 }
 
 /**
- * Harte Mindestbesetzung zum Schluss (Wunsch Chef, Sept 2026): Fr/Sa/So von
- * 20:00 bis 22:00 immer mindestens 2 Bếp und 1 Bồi.
+ * Monatswechsel (Wunsch Chef, Sept 2026): der letzte Tag des Monats und der
+ * 1.–3. sind etwas voller als ein normaler Wochentag. Nur WEICH – etwas mehr
+ * Gewicht, kein Samstag-Niveau und keine Mindestbesetzung.
  */
-export function thienlongLateMinStaff(
+export function isThienlongMonthRushDate(isoDate: string): boolean {
+  const year = Number(isoDate.slice(0, 4));
+  const month = Number(isoDate.slice(5, 7));
+  const day = Number(isoDate.slice(8, 10));
+  const lastDay = new Date(year, month, 0).getDate();
+  return day <= 3 || day === lastDay;
+}
+
+export type MinStaffWindow = { startMinutes: number; endMinutes: number; minStaff: number };
+
+/**
+ * Harte Mindestbesetzung je Rolle an Fr/Sa/So (Wunsch Chef, Sept 2026):
+ * - 14:00–17:00 mindestens 3 Bếp und 1 Bồi,
+ * - 20:00–22:00 mindestens 2 Bếp und 1 Bồi.
+ */
+export function thienlongMinStaffWindows(
   weekday: WeekdayKey,
   role: WorkRole,
-): { startMinutes: number; endMinutes: number; minStaff: number } | null {
-  if (weekday !== "friday" && weekday !== "saturday" && weekday !== "sunday") return null;
-  return { startMinutes: 20 * 60, endMinutes: 22 * 60, minStaff: role === "KITCHEN" ? 2 : 1 };
+): readonly MinStaffWindow[] {
+  if (weekday !== "friday" && weekday !== "saturday" && weekday !== "sunday") return [];
+  const kitchen = role === "KITCHEN";
+  return [
+    { startMinutes: 14 * 60, endMinutes: 17 * 60, minStaff: kitchen ? 3 : 1 },
+    { startMinutes: 20 * 60, endMinutes: 22 * 60, minStaff: kitchen ? 2 : 1 },
+  ];
 }
 
 /** Extra soft demand used to keep longer shifts around lunch and dinner. */
@@ -213,6 +233,21 @@ export function thienlongDemandWeight(weekday: WeekdayKey, isHoliday = false): n
   if (weekday === "sunday") return 1.1;
   return 1;
 }
+
+/** Gewicht der Monatswechsel-Tage: über Mo–Do (1,0), unter Fr/Sa (1,35). */
+export const THIENLONG_MONTH_RUSH_WEIGHT = 1.15;
+
+/** Tagesgewicht für ein konkretes Datum (Wochentag, Feiertag, Monatswechsel). */
+export function thienlongDateWeight(isoDate: string, isHoliday = false): number {
+  const [y, m, d] = isoDate.split("-").map(Number);
+  const weekday = WEEKDAY_KEYS_BY_JS_DAY[new Date(y, m - 1, d).getDay()];
+  const base = thienlongDemandWeight(weekday, isHoliday);
+  return isThienlongMonthRushDate(isoDate) ? Math.max(base, THIENLONG_MONTH_RUSH_WEIGHT) : base;
+}
+
+const WEEKDAY_KEYS_BY_JS_DAY: readonly WeekdayKey[] = [
+  "sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday",
+];
 
 /**
  * Personal-Bandbreite je Tag: nur noch relative KÖPFE-Grenzen zum Verteilen der
