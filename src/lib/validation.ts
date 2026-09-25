@@ -10,12 +10,13 @@ import {
 } from "../types";
 import { calculatePause, minutesToTime } from "./time";
 import { maxConsecutiveRun } from "./consecutive";
-import { datesOfMonth, parseIsoDate } from "./demand";
+import { datesOfMonth, parseIsoDate, weekdayKeyOf } from "./demand";
 import { holidaysOf, type HolidayState } from "./holidays";
 import { resolveDay, type OverrideMap, type WorkHoursConfig } from "./workHours";
 import { vietphoPeakIntervals } from "./vietphoDemand";
 import { isEmployeeFixedDayOff } from "./fixedDaysOff";
 import { worksDinner, worksLunch } from "./shiftMeals";
+import { thienlongLateMinStaff } from "./thienlongDemand";
 
 export type ValidationError = {
   employeeId?: string;
@@ -245,6 +246,30 @@ export function validateSchedule(
               date,
               message: `Ngày ${date}: ${label} tối (${dinner}) ít hơn trưa (${lunch}).`,
             });
+          }
+          // Fr/Sa/So 20–22 Uhr: Mindestbesetzung je Rolle.
+          const late = thienlongLateMinStaff(weekdayKeyOf(parseIsoDate(date)), role);
+          if (late) {
+            const short: number[] = [];
+            for (let t = late.startMinutes; t + 30 <= late.endMinutes; t += 30) {
+              if (!day.blocks.some((b) => b.startMinutes <= t && b.endMinutes >= t + 30)) continue;
+              const count = roleShifts.filter((shift) =>
+                (shift.segments ?? [shift]).some(
+                  (segment) => segment.startMinutes <= t && segment.endMinutes >= t + 30,
+                ),
+              ).length;
+              if (count < late.minStaff) short.push(t);
+            }
+            if (short.length > 0) {
+              const label = role === "KITCHEN" ? "Bếp" : "Bồi";
+              errors.push({
+                date,
+                message:
+                  `Ngày ${date}: cần ít nhất ${late.minStaff} ${label} từ ` +
+                  `${minutesToTime(late.startMinutes)}–${minutesToTime(late.endMinutes)} ` +
+                  `(thiếu lúc ${short.map(minutesToTime).join(", ")}).`,
+              });
+            }
           }
           if (ranges.length > 0) {
             const label = role === "KITCHEN" ? "Bếp" : "Bồi";

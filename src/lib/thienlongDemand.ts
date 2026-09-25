@@ -164,6 +164,18 @@ export function thienlongMealPeakIntervals(): readonly {
   return MEAL_PEAKS.map((peak) => ({ ...peak }));
 }
 
+/**
+ * Harte Mindestbesetzung zum Schluss (Wunsch Chef, Sept 2026): Fr/Sa/So von
+ * 20:00 bis 22:00 immer mindestens 2 Bếp und 1 Bồi.
+ */
+export function thienlongLateMinStaff(
+  weekday: WeekdayKey,
+  role: WorkRole,
+): { startMinutes: number; endMinutes: number; minStaff: number } | null {
+  if (weekday !== "friday" && weekday !== "saturday" && weekday !== "sunday") return null;
+  return { startMinutes: 20 * 60, endMinutes: 22 * 60, minStaff: role === "KITCHEN" ? 2 : 1 };
+}
+
 /** Extra soft demand used to keep longer shifts around lunch and dinner. */
 export function thienlongMealPeakDemand(
   weekday: WeekdayKey,

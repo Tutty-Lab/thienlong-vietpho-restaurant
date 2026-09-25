@@ -60,6 +60,7 @@ import {
   thienlongDemandWeight,
   thienlongLateShiftRatio,
   thienlongMealPeakDemand,
+  thienlongLateMinStaff,
   thienlongMealPeakIntervals,
   thienlongStaffingProfile,
 } from "./thienlongDemand";
@@ -2645,8 +2646,18 @@ function optimizeThienlongPlacement(
       if (pl.dinner) dinnerCount.set(roleOf(sh), dinnerCount.get(roleOf(sh))! + 1);
     }
     const total = (i: number) => roles.reduce((acc, r) => acc + have.get(r)![i], 0);
+    // Harte Mindestköpfe je Slot (Fr/Sa/So 20–22 Uhr: 2 Bếp, 1 Bồi).
+    const minHeads = new Map<WorkRole, number[]>();
+    for (const role of roles) {
+      const late = thienlongLateMinStaff(weekday, role);
+      minHeads.set(role, slots.map((t) =>
+        late && t >= late.startMinutes && t + SLOT <= late.endMinutes ? late.minStaff : 0,
+      ));
+    }
     const slotCost = (role: WorkRole, i: number, count: number) =>
-      (count - need.get(role)![i]) ** 2 + (count === 0 ? 1000 : 0);
+      (count - need.get(role)![i]) ** 2 +
+      (count === 0 ? 1000 : 0) +
+      800 * Math.max(0, minHeads.get(role)![i] - count);
     const dayRuleCost = (openCount: number, lunch: number, dinner: number) =>
       300 * Math.max(0, Math.min(2, dayShifts.length) - openCount) +
       300 * Math.max(0, lunch - dinner);

@@ -51,6 +51,25 @@ describe("Thienlong with the real team settings", () => {
     ).toEqual([]);
   });
 
+  it("keeps at least 2 Bếp and 1 Bồi from 20:00 to 22:00 on Fri/Sat/Sun", () => {
+    const roleOf = (id: string) => team.find((e) => e.id === id)!.workRole;
+    for (const date of openDates) {
+      const wd = new Date(`${date}T12:00:00`).getDay();
+      if (![5, 6, 0].includes(wd)) continue;
+      for (let t = 20 * 60; t < 22 * 60; t += 30) {
+        const count = (role: string) =>
+          shifts.filter(
+            (s) =>
+              s.date === date &&
+              roleOf(s.employeeId) === role &&
+              (s.segments ?? [s]).some((g) => g.startMinutes <= t && g.endMinutes >= t + 30),
+          ).length;
+        expect(count("KITCHEN"), `${date} ${t / 60} Bếp`).toBeGreaterThanOrEqual(2);
+        expect(count("SERVICE"), `${date} ${t / 60} Bồi`).toBeGreaterThanOrEqual(1);
+      }
+    }
+  });
+
   it("works exactly the requested days per week (every non-fixed-off day when that is all there is)", () => {
     for (const e of team.filter((x) => x.desiredDaysPerWeek)) {
       const eligible = openDates.filter((d) => !isEmployeeFixedDayOff(e, d));
