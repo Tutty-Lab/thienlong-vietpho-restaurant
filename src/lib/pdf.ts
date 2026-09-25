@@ -173,23 +173,6 @@ function drawInfoBlock(
   return y + 1;
 }
 
-/** Unterschriftszeilen am Seitenende. */
-function drawSignatures(doc: jsPDF, labels: string[], y: number): void {
-  const pageW = doc.internal.pageSize.getWidth();
-  const gap = (pageW - 2 * MARGIN) / labels.length;
-  doc.setDrawColor(...LINE);
-  doc.setLineWidth(0.2);
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(8);
-  doc.setTextColor(...LINE);
-  labels.forEach((label, i) => {
-    const x0 = MARGIN + i * gap;
-    const x1 = x0 + gap - 10;
-    doc.line(x0, y, x1, y);
-    doc.text(T(label), x0, y + 4);
-  });
-}
-
 // ── Stundenzettel ──────────────────────────────────────────────────────────
 
 type DayRow = {
@@ -388,7 +371,6 @@ function drawStundenzettel(
       ["Beschäftigungsart", employmentLabelDe(employee.employmentType)],
       ["Mitarbeiter", employee.name],
       ["Monat", MONTH_NAMES_DE[schedule.month - 1]],
-      ["Sollstunden", null], // von Hand einzutragen
       ["Jahr", String(schedule.year)],
     ],
     startY,
@@ -398,41 +380,29 @@ function drawStundenzettel(
 
   drawStundenzettelTable(doc, infoY, rows, totalMinutes);
 
-  // Zusammenfassung + Unterschriften: FESTE Positionen im reservierten Band am
-  // Seitenende – unabhängig davon, wo die Tabelle endet (keine Kollision mehr).
+  // Zusammenfassung: FESTE Position im reservierten Band am Seitenende –
+  // unabhängig davon, wo die Tabelle endet (keine Kollision).
   const pageH = doc.internal.pageSize.getHeight();
   const pageW = doc.internal.pageSize.getWidth();
   const summaryY = pageH - 30;
   const col3 = (pageW - 2 * MARGIN) / 3;
 
-  const summary: Array<[string, string | null]> = [
-    ["Gesamtstunden", `${minutesToDecimalHours(totalMinutes)} h`],
-    ["Sollstunden", null],
-    ["Differenz", null],
-  ];
-  summary.forEach(([label, value], i) => {
+  // Leere Schreiblinien – der Chef trägt die Stunden von Hand ein.
+  // Azubis bekommen keine Zuschläge – nur die Gesamtstunden.
+  const summary =
+    employee.employmentType === "AZUBI"
+      ? ["Gesamtstunden"]
+      : ["Gesamtstunden", "Nachtstunden (ab 20 Uhr)", "Sonntagsstunden"];
+  summary.forEach((label, i) => {
     const x = MARGIN + i * col3;
     doc.setFont("helvetica", "normal");
     doc.setFontSize(8.5);
     doc.setTextColor(...MUTED);
     doc.text(T(label), x, summaryY);
-    if (value === null) {
-      doc.setDrawColor(...GRID);
-      doc.setLineWidth(0.2);
-      doc.line(x, summaryY + 5, x + 26, summaryY + 5);
-    } else {
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(10);
-      doc.setTextColor(...INK);
-      doc.text(T(value), x, summaryY + 5);
-    }
+    doc.setDrawColor(...GRID);
+    doc.setLineWidth(0.2);
+    doc.line(x, summaryY + 7, x + 40, summaryY + 7);
   });
-
-  drawSignatures(
-    doc,
-    ["Unterschrift Mitarbeiter", "Unterschrift Arbeitgeber", "Datum"],
-    pageH - 14,
-  );
 }
 
 /**

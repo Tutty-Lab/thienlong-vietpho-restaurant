@@ -6,11 +6,9 @@ import {
   weekdayKeyOf,
 } from "../lib/demand";
 import { minutesToDecimalHours, minutesToTime } from "../lib/time";
-import { signedHours } from "../lib/dateFormat";
 import { MONTH_NAMES_DE } from "../lib/dateFormat";
 import { holidayNames as holidayNamesOf } from "../lib/holidays";
 import { azubiTimesheetMode, isAzubiSchoolTermDate } from "../lib/azubi";
-import { calculateZuschlaege } from "../lib/zuschlaege";
 import { format } from "date-fns";
 
 // Deutscher Monats-Titel für das offizielle Dokument.
@@ -54,11 +52,7 @@ export function StundenzettelPage({
   const shownShifts = employeeShifts.filter((s) => rows.includes(s.date));
   const totalMinutes = shownShifts.reduce((total, shift) => total + shift.paidMinutes, 0);
   // Azubi receive no Zuschlaege; keep their timesheet focused on worked hours.
-  const surcharges =
-    employee.employmentType === "AZUBI"
-      ? null
-      : calculateZuschlaege(shownShifts, schedule.surchargeConfig);
-  const diff = totalMinutes - employee.targetMinutes;
+  const isAzubi = employee.employmentType === "AZUBI";
   const holidayNames = holidayNamesOf(schedule.year, schedule.holidayState);
   const closedByDate = new Map(
     schedule.dateOverrides.filter((o) => o.closed).map((o) => [o.date, o] as const),
@@ -85,10 +79,6 @@ export function StundenzettelPage({
         />
         <Info label="Mitarbeiter" value={employee.name} />
         <Info label="Monat" value={MONTH_NAMES_DE[schedule.month - 1]} />
-        <Info
-          label="Sollstunden"
-          value={dates ? "—" : `${minutesToDecimalHours(employee.targetMinutes)} h`}
-        />
         <Info label="Jahr" value={String(schedule.year)} />
       </div>
 
@@ -165,71 +155,15 @@ export function StundenzettelPage({
         </tfoot>
       </table>
 
+      {/* Leere Felder – der Chef trägt die Stunden von Hand ein. */}
       <div className="mt-3 grid grid-cols-3 gap-4 text-[12px]">
-        <div>
-          <div className="text-slate-500">Gesamtstunden</div>
-          <div className="font-semibold">{minutesToDecimalHours(totalMinutes)} h</div>
-        </div>
-        <div>
-          <div className="text-slate-500">Sollstunden</div>
-          {dates ? (
-            <div className="font-semibold text-slate-400">—</div>
-          ) : (
-            <div className="font-semibold">{minutesToDecimalHours(employee.targetMinutes)} h</div>
-          )}
-        </div>
-        <div>
-          <div className="text-slate-500">Differenz</div>
-          {dates ? (
-            <div className="font-semibold text-slate-400">—</div>
-          ) : (
-            <div className={`font-semibold ${diff === 0 ? "text-emerald-700" : "text-rose-700"}`}>
-              {signedHours(diff)} h
-            </div>
-          )}
-        </div>
-      </div>
-
-      {surcharges && (
-        <div className="mt-3 border-t border-slate-300 pt-2 text-[12px]">
-          <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-            Zuschläge
-          </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <div className="text-slate-500">Arbeitsstunden ab 20:00 Uhr</div>
-              <div className="font-semibold">
-                {minutesToDecimalHours(surcharges.after20Minutes)} h
-              </div>
-              <div className="text-[11px] text-slate-500">
-                Zuschlag {surcharges.after20Percent.toLocaleString("de-DE")}%: +
-                {minutesToDecimalHours(surcharges.after20BonusMinutes)} h
-              </div>
-            </div>
-            <div>
-              <div className="text-slate-500">Sonntagsstunden</div>
-              <div className="font-semibold">
-                {minutesToDecimalHours(surcharges.sundayMinutes)} h
-              </div>
-              <div className="text-[11px] text-slate-500">
-                Zuschlag {surcharges.sundayPercent.toLocaleString("de-DE")}%: +
-                {minutesToDecimalHours(surcharges.sundayBonusMinutes)} h
-              </div>
-            </div>
-          </div>
-          <div className="mt-2 flex items-center justify-between border-t border-slate-200 pt-2">
-            <span className="text-slate-500">Zuschlagsstunden gesamt</span>
-            <span className="font-semibold">
-              +{minutesToDecimalHours(surcharges.totalBonusMinutes)} h
-            </span>
-          </div>
-        </div>
-      )}
-
-      <div className="mt-10 grid grid-cols-3 gap-8 text-[11px]">
-        <Signature label="Unterschrift Mitarbeiter" />
-        <Signature label="Unterschrift Arbeitgeber" />
-        <Signature label="Datum" />
+        <HandField label="Gesamtstunden" />
+        {!isAzubi && (
+          <>
+            <HandField label="Nachtstunden (ab 20 Uhr)" />
+            <HandField label="Sonntagsstunden" />
+          </>
+        )}
       </div>
     </div>
   );
@@ -268,10 +202,11 @@ function Td({
   );
 }
 
-function Signature({ label }: { label: string }) {
+function HandField({ label }: { label: string }) {
   return (
     <div>
-      <div className="border-t border-slate-500 pt-1 mt-8 text-slate-600">{label}</div>
+      <div className="text-slate-500">{label}</div>
+      <div className="mt-6 w-40 border-b border-slate-400" />
     </div>
   );
 }

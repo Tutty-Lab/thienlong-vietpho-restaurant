@@ -117,7 +117,7 @@ describe("Stundenaufzeichnung fuer Azubi", () => {
     expect(html).not.toContain("Zuschlagsstunden gesamt");
   });
 
-  it("keeps Zuschlaege for regular employees without double-counting Sunday Nacht hours", () => {
+  it("shows only Gesamt-, Nacht- and Sonntagsstunden for regular employees", () => {
     const employee: Employee = {
       id: "REGULAR-PRINT",
       name: "Regular Test",
@@ -165,10 +165,13 @@ describe("Stundenaufzeichnung fuer Azubi", () => {
       createElement(StundenzettelPage, { schedule, employee }),
     );
 
-    expect(html).toContain("Zuschläge");
-    expect(html).toContain("Zuschlag 25%: +0,50 h");
-    expect(html).toContain("Zuschlag 50%: +1,00 h");
-    expect(html).toContain("+1,50 h");
+    // Nur leere Felder für Gesamt-, Nacht- und Sonntagsstunden (von Hand).
+    expect(html).toContain("Nachtstunden (ab 20 Uhr)");
+    expect(html).toContain("Sonntagsstunden");
+    expect(html).not.toContain("2,00 h");
+    expect(html).not.toContain("Sollstunden");
+    expect(html).not.toContain("Differenz");
+    expect(html).not.toContain("Unterschrift");
     expect(html).not.toContain("Einsatzbereich");
   });
 });
