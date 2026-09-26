@@ -1,4 +1,5 @@
 import { format } from "date-fns";
+import { withMonthRoles } from "../lib/roleCoverage";
 import type { Employee, Schedule, Shift } from "../types";
 import {
   parseIsoDate,
@@ -32,13 +33,15 @@ function shiftSegments(shift: Shift) {
 export function DailySchedulePage({ schedule, date }: { schedule: Schedule; date: string }) {
   const shifts = schedule.shifts.filter((shift) => shift.date === date);
   const shiftByEmployee = new Map(shifts.map((shift) => [shift.employeeId, shift] as const));
-  const employeeById = new Map(schedule.employees.map((employee) => [employee.id, employee] as const));
+  // Rolle dieses Monats (Làm được cả Bếp và Bồi).
+  const monthEmployees = withMonthRoles(schedule.employees, schedule.year, schedule.month);
+  const employeeById = new Map(monthEmployees.map((employee) => [employee.id, employee] as const));
   const dateValue = parseIsoDate(date);
   const weekday = WEEKDAY_LABELS_DE[weekdayKeyOf(dateValue)];
   const holiday = holidayNamesOf(schedule.year, schedule.holidayState).get(date);
   const override = schedule.dateOverrides.find((entry) => entry.date === date);
 
-  const employees = [...schedule.employees].sort((left, right) => {
+  const employees = [...monthEmployees].sort((left, right) => {
     const leftShift = shiftByEmployee.get(left.id);
     const rightShift = shiftByEmployee.get(right.id);
     if (Boolean(leftShift) !== Boolean(rightShift)) return leftShift ? -1 : 1;

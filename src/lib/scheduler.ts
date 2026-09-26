@@ -88,6 +88,12 @@ export type GenerateInput = {
   holidayState?: HolidayState;
   /** Optionaler Seed; sonst aus Eingabedaten abgeleitet. */
   seed?: string;
+  /**
+   * Schnelle Probe (für „Tìm cách xếp khác"): ohne den letzten Feinschliff
+   * „Ca chuẩn" (Längen tauschen) – der ändert die Besetzung kaum, kostet aber
+   * bei dünner Besetzung Sekunden.
+   */
+  quick?: boolean;
 };
 
 type DateState = {
@@ -3365,7 +3371,7 @@ export function generateSchedule(input: GenerateInput): Shift[] {
     optimizeThienlongPlacement(state);
   }
   // Längen zweier Kollegen über zwei Tage tauschen → mehr „ca chuẩn".
-  rebalanceForStandardShifts(state);
+  if (!input.quick) rebalanceForStandardShifts(state);
 
   // Stabil sortieren: nach Datum, dann Startzeit, dann Mitarbeiter.
   state.shifts.sort(

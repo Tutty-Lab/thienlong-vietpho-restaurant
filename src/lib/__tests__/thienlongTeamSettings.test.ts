@@ -9,6 +9,8 @@ import { validateSchedule } from "../validation";
 import { isThienlongMonthRushDate } from "../thienlongDemand";
 import { withAutomaticAzubiTarget } from "../azubi";
 import { withEmploymentPeriodTarget } from "../employmentPeriod";
+import { applyRoleChanges, findRoleSwitchOptions } from "../suggestions";
+import { monthRole } from "../roleCoverage";
 
 // Thienlong-Team wie im Live-Stand (Aug 2026): 4 Köche mit 6 Tagen/Woche,
 // 4 Azubis mit 5 Tagen/Woche, 3 Aushilfen, 1 Vollzeit-Service ohne Tage/Woche.
@@ -228,7 +230,31 @@ describe("Thienlong when Azubis are away (school) – nobody replaces them", () 
       .map((e) => inSchool(e, "2026-09-01"))
       .map((e) => (e.id === "at" || e.id === "hl" ? withEmploymentPeriodTarget({ ...e, endDate: "2026-09-10" }, 2026, 9) : e));
     const planned = generateSchedule({ ...ctx, employees: away });
-    const messages = validateSchedule(away, planned, ctx).errors.map((x) => x.message);
-    expect(messages.some((m) => m.includes("cần ít nhất 3 Bếp") && m.includes("không đủ người"))).toBe(true);
+    const errors = validateSchedule(away, planned, ctx).errors;
+    const cooks = errors.find((e) => e.message.includes("cần ít nhất 3 Bếp"));
+    expect(cooks?.kind).toBe("coverage");
+    expect(cooks?.reason).toContain("không đủ người");
+    expect(cooks?.suggestion).toBeTruthy();
   });
+
+  it("finds a whole-month role switch that really lowers the errors (Bồi short → a cook serves)", async () => {
+    // Azubis in der Schule, Service-Vollzeit geht am 10.9. – Bồi fehlt, Köche sind da.
+    const away = team
+      .map((e) => (e.id === "tl" ? { ...e, desiredDaysPerWeek: 6 } : e))
+      .map((e) => inSchool(e, "2026-09-01"))
+      .map((e) => (e.id === "tl" ? withEmploymentPeriodTarget({ ...e, endDate: "2026-09-10" }, 2026, 9) : e))
+      .map((e) => (e.id === "hs" || e.id === "jl" ? { ...e, canSwitchRole: true } : e));
+    const result = await findRoleSwitchOptions(away, ctx);
+    expect(result.options.length).toBeGreaterThan(0);
+    const best = result.options[0];
+    expect(best.errors).toBeLessThan(result.baselineErrors);
+    expect(best.changes.every((c) => c.from === "KITCHEN" && c.to === "SERVICE")).toBe(true);
+    expect(best.changes.every((c) => c.employeeId === "hs" || c.employeeId === "jl")).toBe(true);
+
+    // Übernommen: die Person zählt den ganzen Monat als Bồi, im nächsten wieder als Bếp.
+    const applied = applyRoleChanges(away, best.changes, 2026, 9);
+    const switched = applied.find((e) => e.id === best.changes[0].employeeId)!;
+    expect(monthRole(switched, 2026, 9)).toBe("SERVICE");
+    expect(monthRole(switched, 2026, 10)).toBe("KITCHEN");
+  }, 120000);
 });

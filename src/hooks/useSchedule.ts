@@ -30,6 +30,8 @@ import {
 import { isEmployeeFixedDayOff, normalizedFixedDaysOff } from "../lib/fixedDaysOff";
 import { withEmploymentPeriodTarget } from "../lib/employmentPeriod";
 import { isEmployeeAvailableOn } from "../lib/availability";
+import { withMonthRoles } from "../lib/roleCoverage";
+import { applyRoleChanges, type RoleChange } from "../lib/suggestions";
 import { listSavedMonths, mergeArchives, monthKey, switchMonth } from "../lib/monthArchive";
 
 function emptySchedule(store: StoreConfig): Schedule {
@@ -229,8 +231,13 @@ export function useSchedule() {
     });
   }, [schedule.year, schedule.month, schedule.employees]);
 
+  // Rolle dieses Monats (Làm được cả Bếp và Bồi → roleByMonth) für Prüfung/Anzeige.
+  const monthEmployees = useMemo(
+    () => withMonthRoles(schedule.employees, schedule.year, schedule.month),
+    [schedule.employees, schedule.year, schedule.month],
+  );
   const validation: ValidationResult = useMemo(
-    () => validateSchedule(schedule.employees, schedule.shifts, {
+    () => validateSchedule(monthEmployees, schedule.shifts, {
       year: schedule.year,
       month: schedule.month,
       workHours: schedule.workHours,
@@ -238,7 +245,7 @@ export function useSchedule() {
       storeId,
       overrides: overridesToMap(schedule.dateOverrides),
     }),
-    [schedule, storeId],
+    [schedule, storeId, monthEmployees],
   );
   const readiness = useMemo(
     () =>
@@ -370,39 +377,68 @@ export function useSchedule() {
   }, []);
 
   // ----- Generierung -----
-  const generate = useCallback(() => {
-    setGenError(null);
-    if (!readiness.ready) {
-      setGenError(readiness.issues.join(" "));
-      return;
-    }
-    try {
-      const shifts = generateSchedule({
-        year: schedule.year,
-        month: schedule.month,
-        storeId,
-        workHours: schedule.workHours,
-        overrides: overridesToMap(schedule.dateOverrides),
-        // Direkt nach einem Monatswechsel sind die Monats-Solls (Azubi,
-        // Ein-/Austritt) evtl. noch nicht nachgezogen – hier sicher berechnen.
-        employees: schedule.employees.map((e) => normalizeEmployee(e, schedule.year, schedule.month)),
-        holidayState: schedule.holidayState,
-      });
-      setSchedule((s) => ({ ...s, shifts }));
-      setOriginalShifts(shifts.map((sh) => ({ ...sh })));
-    } catch (err) {
-      setGenError(err instanceof Error ? err.message : String(err));
-    }
-  }, [
-    schedule.year,
-    schedule.month,
-    storeId,
-    schedule.workHours,
-    schedule.dateOverrides,
-    schedule.employees,
-    schedule.holidayState,
-    readiness,
-  ]);
+  /** Plan erzeugen – optional mit geänderten Mitarbeitern (z. B. Rollenwechsel für den Monat). */
+  const generateFor = useCallback(
+    (employees: Employee[]) => {
+      setGenError(null);
+      if (!readiness.ready) {
+        setGenError(readiness.issues.join(" "));
+        return;
+      }
+      try {
+        const shifts = generateSchedule({
+          year: schedule.year,
+          month: schedule.month,
+          storeId,
+          workHours: schedule.workHours,
+          overrides: overridesToMap(schedule.dateOverrides),
+          // Direkt nach einem Monatswechsel sind die Monats-Solls (Azubi,
+          // Ein-/Austritt) evtl. noch nicht nachgezogen – hier sicher berechnen.
+          employees: withMonthRoles(
+            employees.map((e) => normalizeEmployee(e, schedule.year, schedule.month)),
+            schedule.year,
+            schedule.month,
+          ),
+          holidayState: schedule.holidayState,
+        });
+        setSchedule((s) => ({ ...s, employees, shifts }));
+        setOriginalShifts(shifts.map((sh) => ({ ...sh })));
+      } catch (err) {
+        setGenError(err instanceof Error ? err.message : String(err));
+      }
+    },
+    [
+      schedule.year,
+      schedule.month,
+      storeId,
+      schedule.workHours,
+      schedule.dateOverrides,
+      schedule.holidayState,
+      readiness,
+    ],
+  );
+  const generate = useCallback(() => generateFor(schedule.employees), [generateFor, schedule.employees]);
+
+  /** Vorschlag „Tìm cách xếp khác" übernehmen: Rollen für den Monat setzen und neu planen. */
+  const applyRoleChangesAndGenerate = useCallback(
+    (changes: RoleChange[]) =>
+      generateFor(applyRoleChanges(schedule.employees, changes, schedule.year, schedule.month)),
+    [generateFor, schedule.employees, schedule.year, schedule.month],
+  );
+
+  /** Für „Tìm cách xếp khác": Kontext wie beim Erzeugen. */
+  const suggestionContext = useMemo(
+    () => ({
+      year: schedule.year,
+      month: schedule.month,
+      storeId,
+      workHours: schedule.workHours,
+      overrides: overridesToMap(schedule.dateOverrides),
+      holidayState: schedule.holidayState,
+      employees: schedule.employees.map((e) => normalizeEmployee(e, schedule.year, schedule.month)),
+    }),
+    [schedule.year, schedule.month, storeId, schedule.workHours, schedule.dateOverrides, schedule.holidayState, schedule.employees],
+  );
 
   const resetToOriginal = useCallback(() => {
     setSchedule((s) => ({ ...s, shifts: originalShifts.map((sh) => ({ ...sh })) }));
@@ -534,6 +570,9 @@ export function useSchedule() {
     findShift,
     editShiftPieces,
     addShift,
+    monthEmployees,
+    applyRoleChangesAndGenerate,
+    suggestionContext,
     deleteShift,
     setFrei,
     moveShiftToEmployee,

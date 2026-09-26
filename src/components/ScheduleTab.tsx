@@ -21,6 +21,7 @@ import { signedHours } from "../lib/dateFormat";
 import { monthLabel } from "../lib/shiftOps";
 import { ShiftCellEditor } from "./ShiftCellEditor";
 import { ScheduleDayView } from "./ScheduleDayView";
+import { ValidationPanel } from "./ValidationPanel";
 import { ShiftTimes } from "./ShiftTimes";
 import { isEmployeeFixedDayOff } from "../lib/fixedDaysOff";
 import { unavailableReason } from "../lib/availability";
@@ -44,7 +45,7 @@ function localIsoDate(date: Date): string {
 }
 
 export function ScheduleTab({ store }: { store: UseScheduleReturn }) {
-  const { schedule, validation, readiness, genError } = store;
+  const { schedule, validation, readiness } = store;
 
   // Tháng này đã có lịch thì hỏi trước khi tạo lại – tránh mất lịch đã lưu.
   const dates = useMemo(
@@ -89,8 +90,8 @@ export function ScheduleTab({ store }: { store: UseScheduleReturn }) {
   // 15:00) và buổi tối (có mặt sau 17:00), tách theo Bếp/Bồi. Ca tách đôi tính
   // cho cả hai buổi.
   const roleOf = useMemo(
-    () => new Map(schedule.employees.map((e) => [e.id, e.workRole] as const)),
-    [schedule.employees],
+    () => new Map(store.monthEmployees.map((e) => [e.id, e.workRole] as const)),
+    [store.monthEmployees],
   );
   const dayStats = useMemo(() => {
     type DayStat = {
@@ -228,23 +229,8 @@ export function ScheduleTab({ store }: { store: UseScheduleReturn }) {
         </div>
       )}
 
-      {genError && (
-        <div className="mb-3 rounded bg-rose-50 border border-rose-200 text-rose-700 text-sm px-3 py-2">
-          {genError}
-        </div>
-      )}
-
-      {/* Lỗi kiểm tra */}
-      {!validation.valid && schedule.shifts.length > 0 && (
-        <div className="mb-3 rounded bg-rose-50 border border-rose-200 text-rose-700 text-sm px-3 py-2">
-          <div className="font-medium mb-1">Lỗi kiểm tra ({validation.errors.length}):</div>
-          <ul className="list-disc pl-5 space-y-0.5 max-h-40 overflow-auto">
-            {validation.errors.slice(0, 30).map((e, i) => (
-              <li key={i}>{e.message}</li>
-            ))}
-          </ul>
-        </div>
-      )}
+      {/* Lỗi: nhóm theo loại, có lý do + gợi ý; „Tìm cách xếp khác" thử đổi vị trí cả tháng. */}
+      <ValidationPanel store={store} />
 
       {/* Chú thích (chỉ ở bảng tháng) */}
       {view === "grid" && (
@@ -332,7 +318,12 @@ export function ScheduleTab({ store }: { store: UseScheduleReturn }) {
                     <td className="sticky left-0 z-10 bg-white border-b border-r border-slate-200 px-2 py-1 font-medium whitespace-nowrap">
                       <span className="flex items-center gap-1.5">
                         {emp.name}
-                        <RoleBadge role={emp.workRole} />
+                        <RoleBadge role={roleOf.get(emp.id)} />
+                        {roleOf.get(emp.id) !== emp.workRole && (
+                          <span className="text-[10px] text-violet-600" title="Vị trí riêng tháng này">
+                            tháng này
+                          </span>
+                        )}
                       </span>
                     </td>
                     <td className="border-b border-slate-100 px-2 py-1 text-slate-500">

@@ -60,7 +60,7 @@ export function ScheduleDayView({
   // Nach Rolle (Bếp vor Bồi) und Beginn sortiert – so lässt sich die Besetzung je Gruppe prüfen.
   const roleOrder = (e: (typeof schedule.employees)[number]) =>
     e.workRole === "KITCHEN" ? 0 : e.workRole === "SERVICE" ? 1 : 2;
-  const working = schedule.employees
+  const working = store.monthEmployees
     .filter((e) => shiftByEmp.has(e.id))
     .sort(
       (a, b) =>

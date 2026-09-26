@@ -83,6 +83,14 @@ export type Employee = {
   azubi?: AzubiConfig;
   /** Bếp (KITCHEN) oder Bồi (SERVICE), wenn die Person fest zugeordnet ist. */
   workRole?: WorkRole;
+  /**
+   * „Làm được cả Bếp và Bồi": die Person kann für einen ganzen Monat in die
+   * andere Rolle wechseln (z. B. Azubi-Bồi in der Schule → ein Koch macht den
+   * Monat Service). Nur dann ist roleByMonth wirksam.
+   */
+  canSwitchRole?: boolean;
+  /** Rolle für einzelne Monate (Schlüssel yyyy-MM), sonst workRole. */
+  roleByMonth?: Record<string, WorkRole>;
   /** Feste Ruhetage der jeweiligen Filiale; dort darf keine Schicht liegen. */
   fixedDaysOff?: WeekdayName[];
   /**

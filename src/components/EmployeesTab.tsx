@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { datesOfMonth } from "../lib/demand";
+import { isRoleSwitchedInMonth, monthRole } from "../lib/roleCoverage";
 import type { UseScheduleReturn } from "../hooks/useSchedule";
 import {
   AZUBI_MONTHLY_WARNING_HOURS,
@@ -78,6 +79,8 @@ type Draft = {
   azubi: AzubiConfig;
   startDate: string;
   endDate: string;
+  canSwitchRole: boolean;
+  roleByMonth: Record<string, WorkRole>;
 };
 
 function draftFrom(emp?: Employee): Draft {
@@ -93,6 +96,8 @@ function draftFrom(emp?: Employee): Draft {
     azubi: emp?.azubi ? azubiConfigOf(emp.azubi) : { ...azubiConfigOf(undefined), inSchoolTerm: false },
     startDate: emp?.startDate ?? "",
     endDate: emp?.endDate ?? "",
+    canSwitchRole: emp?.canSwitchRole === true,
+    roleByMonth: { ...(emp?.roleByMonth ?? {}) },
   };
 }
 
@@ -116,6 +121,13 @@ function draftToEmployee(d: Draft): Omit<Employee, "id"> {
     fixedDaysOff: d.employmentType === "TEILZEIT" ? undefined : d.fixedDaysOff,
     // Gewünschte Arbeitstage/Woche: nur 1..7, sonst nicht gesetzt.
     desiredDaysPerWeek: desiredDaysFromDraft(d),
+    canSwitchRole: d.canSwitchRole || undefined,
+    // Monats-Rollen nur behalten, wenn umstellbar und abweichend von der Hauptrolle.
+    roleByMonth: (() => {
+      if (!d.canSwitchRole) return undefined;
+      const kept = Object.fromEntries(Object.entries(d.roleByMonth).filter(([, r]) => r !== d.workRole));
+      return Object.keys(kept).length > 0 ? kept : undefined;
+    })(),
   };
 }
 
@@ -261,6 +273,11 @@ function EmployeeSummaryRow({
             {emp.workRole === "KITCHEN" ? "Bếp" : "Bồi"}
           </span>
         ) : null}
+        {isRoleSwitchedInMonth(emp, year, month) && (
+          <span className="shrink-0 rounded bg-violet-50 px-1.5 py-0.5 text-[11px] font-medium text-violet-700">
+            → {monthRole(emp, year, month) === "KITCHEN" ? "Bếp" : "Bồi"} tháng này
+          </span>
+        )}
         {tooMany && <span className="shrink-0 text-amber-600 text-xs">⚠</span>}
       </div>
       <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-slate-500">
@@ -505,7 +522,7 @@ function EmployeeSheet({
             </div>
             {showWorkRole && (
               <div>
-                <FieldLabel hint={!d.workRole ? "bắt buộc" : undefined}>Vị trí</FieldLabel>
+                <FieldLabel hint={!d.workRole ? "bắt buộc" : undefined}>Vị trí chính</FieldLabel>
                 <Segmented<WorkRole>
                   value={d.workRole}
                   onChange={(v) => set("workRole", v)}
@@ -514,6 +531,39 @@ function EmployeeSheet({
                     { value: "SERVICE", label: "Bồi" },
                   ]}
                 />
+              </div>
+            )}
+            {showWorkRole && d.workRole && (
+              <div className="rounded-lg border border-slate-200">
+                <label className="flex items-center justify-between gap-3 px-3 py-2.5">
+                  <span className="text-sm text-slate-700">
+                    Làm được cả Bếp và Bồi
+                    <span className="block text-[11px] text-slate-400">
+                      Tháng thiếu người có thể cho làm vị trí kia cả tháng
+                    </span>
+                  </span>
+                  <input
+                    type="checkbox"
+                    checked={d.canSwitchRole}
+                    onChange={(e) => set("canSwitchRole", e.target.checked)}
+                    className="h-6 w-6 rounded border-slate-300"
+                  />
+                </label>
+                {d.canSwitchRole && (
+                  <div className="border-t border-slate-100 px-3 py-2.5">
+                    <FieldLabel>Tháng {month}/{year} làm</FieldLabel>
+                    <Segmented<WorkRole>
+                      value={d.roleByMonth[azubiMonthKey(year, month)] ?? d.workRole}
+                      onChange={(v) =>
+                        set("roleByMonth", { ...d.roleByMonth, [azubiMonthKey(year, month)]: v })
+                      }
+                      options={[
+                        { value: "KITCHEN", label: d.workRole === "KITCHEN" ? "Bếp (chính)" : "Bếp" },
+                        { value: "SERVICE", label: d.workRole === "SERVICE" ? "Bồi (chính)" : "Bồi" },
+                      ]}
+                    />
+                  </div>
+                )}
               </div>
             )}
           </SheetSection>
