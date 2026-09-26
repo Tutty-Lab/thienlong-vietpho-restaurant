@@ -197,6 +197,26 @@ export function azubiMonthMode(
   return "mixed";
 }
 
+/** Alle Monate, die (ganz oder teilweise) im Schulzeitraum liegen. */
+export function azubiTermMonths(cfg: AzubiConfig | undefined): { year: number; month: number }[] {
+  const range = azubiSchoolTermRange(cfg);
+  if (!range) return [];
+  let year = Number(range.start.slice(0, 4));
+  let month = Number(range.start.slice(5, 7));
+  const endYear = Number(range.end.slice(0, 4));
+  const endMonth = Number(range.end.slice(5, 7));
+  const result: { year: number; month: number }[] = [];
+  while (year < endYear || (year === endYear && month <= endMonth)) {
+    result.push({ year, month });
+    month += 1;
+    if (month === 13) {
+      month = 1;
+      year += 1;
+    }
+  }
+  return result;
+}
+
 /** Stabiler Schluessel fuer eine monatsspezifische Azubi-Vorgabe. */
 export function azubiMonthKey(year: number, month: number): string {
   return `${year}-${String(month).padStart(2, "0")}`;

@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { datesOfMonth } from "../lib/demand";
 import type { UseScheduleReturn } from "../hooks/useSchedule";
 import {
   AZUBI_MONTHLY_WARNING_HOURS,
@@ -9,7 +10,6 @@ import {
   type WorkRole,
 } from "../types";
 import { splitTargetHours, teilzeitShiftCount } from "../lib/splitTargetHours";
-import { AzubiTab } from "./AzubiTab";
 import {
   activeDaysInMonth,
   employmentPeriodLabel,
@@ -23,6 +23,7 @@ import {
   azubiSchoolTermRange,
   azubiMonthlyHoursNeedWarning,
   azubiMonthlyHoursForMonth,
+  azubiTermMonths,
 } from "../lib/azubi";
 import {
   hasRequiredFixedDaysOff,
@@ -30,8 +31,9 @@ import {
   WEEKDAY_ORDER,
 } from "../lib/fixedDaysOff";
 
+// text-base (16px) auf dem Handy: iOS zoomt sonst beim Tippen hinein.
 const inputClass =
-  "rounded border border-slate-300 px-2 py-1.5 text-sm focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-500";
+  "rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-base sm:text-sm focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-500";
 
 export const WARN_HOURS = 192;
 
@@ -87,7 +89,8 @@ function draftFrom(emp?: Employee): Draft {
     daysPerWeek: emp?.desiredDaysPerWeek ? String(emp.desiredDaysPerWeek) : "",
     saved: emp?.saved === true,
     fixedDaysOff: emp?.fixedDaysOff ?? [],
-    azubi: azubiConfigOf(emp?.azubi),
+    // Neue Azubis starten ohne Kỳ học (sonst wäre der Monat „Schule" = 0 h).
+    azubi: emp?.azubi ? azubiConfigOf(emp.azubi) : { ...azubiConfigOf(undefined), inSchoolTerm: false },
     startDate: emp?.startDate ?? "",
     endDate: emp?.endDate ?? "",
   };
@@ -123,27 +126,9 @@ function desiredDaysFromDraft(d: Draft): number | undefined {
   return Math.min(7, n);
 }
 
-/** Tab Nhân viên: Liste + (aufklappbar) Azubi-Einstellungen – früher eigener Tab. */
+/** Tab Nhân viên – Azubi-Einstellungen stecken direkt im Formular der Person. */
 export function EmployeesTab({ store }: { store: UseScheduleReturn }) {
-  const azubiCount = store.schedule.employees.filter((e) => e.employmentType === "AZUBI").length;
-  return (
-    <div className="space-y-4">
-      <EmployeesList store={store} />
-      {azubiCount > 0 && (
-        <details className="group rounded-lg bg-white border border-slate-200 shadow-sm">
-          <summary className="flex cursor-pointer list-none items-center gap-2 px-4 py-3">
-            <span className="text-base font-semibold text-slate-900">Azubi</span>
-            <span className="text-sm text-slate-500">kỳ học, giờ từng tháng ({azubiCount})</span>
-            <span className="ml-auto text-xs text-slate-400 group-open:hidden">Mở ▾</span>
-            <span className="ml-auto hidden text-xs text-slate-400 group-open:inline">Thu gọn ▴</span>
-          </summary>
-          <div className="border-t border-slate-100 p-3 sm:p-4">
-            <AzubiTab store={store} />
-          </div>
-        </details>
-      )}
-    </div>
-  );
+  return <EmployeesList store={store} />;
 }
 
 function EmployeesList({ store }: { store: UseScheduleReturn }) {
@@ -177,7 +162,7 @@ function EmployeesList({ store }: { store: UseScheduleReturn }) {
         </button>
       </div>
       <p className="mb-4 text-xs text-slate-500">
-        Bấm vào một người để sửa. Vollzeit chọn 1 ngày nghỉ cố định, Azubi 2 ngày.
+        Bấm vào một người để sửa. Azubi: kỳ học và giờ từng tháng cài ngay trong đó.
       </p>
 
       {schedule.employees.length === 0 ? (
@@ -303,6 +288,95 @@ function EmployeeSummaryRow({
   );
 }
 
+// ---- Formular (Bottom-Sheet, mobil zuerst) --------------------------------
+
+/** Große Tipp-Ziele statt Dropdowns (Hình thức, Vị trí). */
+function Segmented<T extends string>({
+  value,
+  options,
+  onChange,
+}: {
+  value: T | "";
+  options: { value: T; label: string }[];
+  onChange: (v: T) => void;
+}) {
+  return (
+    <div className="grid gap-1 rounded-lg bg-slate-100 p-1" style={{ gridTemplateColumns: `repeat(${options.length}, minmax(0, 1fr))` }}>
+      {options.map((o) => (
+        <button
+          key={o.value}
+          type="button"
+          aria-pressed={value === o.value}
+          onClick={() => onChange(o.value)}
+          className={`rounded-md px-2 py-2.5 text-sm font-medium transition-colors ${
+            value === o.value ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-800"
+          }`}
+        >
+          {o.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function FieldLabel({ children, hint }: { children: React.ReactNode; hint?: React.ReactNode }) {
+  return (
+    <div className="mb-1 flex items-baseline justify-between gap-2">
+      <span className="text-xs font-medium text-slate-600">{children}</span>
+      {hint && <span className="text-[11px] text-slate-400">{hint}</span>}
+    </div>
+  );
+}
+
+/** Zahlenfeld mit Ziffern-Tastatur und Einheit rechts. */
+function HoursInput({
+  value,
+  onChange,
+  placeholder,
+  unit = "h",
+  disabled,
+  warn,
+  decimal,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+  unit?: string;
+  disabled?: boolean;
+  warn?: boolean;
+  decimal?: boolean;
+}) {
+  return (
+    <div className="relative">
+      <input
+        type="number"
+        inputMode={decimal ? "decimal" : "numeric"}
+        enterKeyHint="done"
+        min={0}
+        step={decimal ? 0.5 : 1}
+        disabled={disabled}
+        placeholder={placeholder}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        onFocus={(e) => e.target.select()}
+        className={`${inputClass} w-full pr-10 tabular-nums ${warn ? "border-amber-400 text-amber-900" : ""} disabled:bg-slate-50 disabled:text-slate-400`}
+      />
+      <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-slate-400">
+        {unit}
+      </span>
+    </div>
+  );
+}
+
+function SheetSection({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <section className="space-y-3">
+      <h4 className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">{title}</h4>
+      {children}
+    </section>
+  );
+}
+
 function EmployeeSheet({
   employee,
   year,
@@ -322,8 +396,10 @@ function EmployeeSheet({
 }) {
   const [d, setD] = useState<Draft>(() => draftFrom(employee));
   const [loeschFrage, setLoeschFrage] = useState(false);
+  const [showPeriod, setShowPeriod] = useState(() => !!(employee?.startDate || employee?.endDate));
 
   const set = <K extends keyof Draft>(k: K, v: Draft[K]) => setD((prev) => ({ ...prev, [k]: v }));
+  const setAzubi = (patch: Partial<AzubiConfig>) => setD((prev) => ({ ...prev, azubi: { ...prev.azubi, ...patch } }));
 
   const showWorkRole = storeId === "thienlong";
   const isAzubi = d.employmentType === "AZUBI";
@@ -331,43 +407,42 @@ function EmployeeSheet({
   const info = splitInfo(stunden, d.employmentType);
   const tooMany = !isAzubi && stunden > WARN_HOURS;
 
+  // ---- Azubi ----
+  const monthKey = azubiMonthKey(year, month);
   const azubiMode = azubiMonthMode(d.azubi, year, month);
-  const azubiMonthlyHours = azubiMonthlyHoursForMonth(d.azubi, year, month);
+  const hasTermDates = !!azubiSchoolTermRange(d.azubi);
+  const azubiGeneral = d.azubi.monthlyHoursOutOfTerm ?? 0;
   const azubiWarning = azubiMonthlyHoursNeedWarning(d.azubi, year, month);
-  const schoolWholeMonth = azubiMode === "school" && !!azubiSchoolTermRange(d.azubi);
-
-  const setAzubiHours = (value: number) => {
-    const v = Math.max(0, value);
-    if (azubiMode !== "work") {
-      set("azubi", {
-        ...d.azubi,
-        monthlyHoursByMonth: {
-          ...(d.azubi.monthlyHoursByMonth ?? {}),
-          [azubiMonthKey(year, month)]: v,
-        },
-      });
-    } else {
-      set("azubi", { ...d.azubi, monthlyHoursOutOfTerm: v });
-    }
+  const monthDates = datesOfMonth(year, month);
+  const termMonths = azubiTermMonths(d.azubi);
+  const setMonthMap = (
+    field: "monthlyHoursByMonth" | "workMonthHoursByMonth",
+    key: string,
+    raw: string,
+  ) => {
+    const next = { ...(d.azubi[field] ?? {}) };
+    if (raw === "") delete next[key];
+    else if (Number.isFinite(Number(raw))) next[key] = Math.max(0, Number(raw));
+    setAzubi({ [field]: Object.keys(next).length > 0 ? next : undefined });
   };
 
   const requiredDaysOff = requiredFixedDaysOff(d.employmentType);
   const draftEmp: Employee = { id: "draft", ...draftToEmployee(d) };
+  const daysOffOk = hasRequiredFixedDaysOff(draftEmp);
   const monthDays = new Date(year, month, 0).getDate();
   const activeDays = activeDaysInMonth(draftEmp, year, month);
-  const fullMinutes = stunden * 60;
-  const periodPreview = d.endDate && d.startDate && d.endDate < d.startDate
-    ? "Ngày nghỉ việc phải sau ngày vào làm."
-    : isAzubi && activeDays < monthDays
-      ? `Tháng ${month}/${year}: làm ${activeDays}/${monthDays} ngày. Azubi không tự tính giờ – hãy nhập giờ riêng cho tháng này ở mục Azubi (tab Nhân viên).`
+  const periodPreview =
+    d.endDate && d.startDate && d.endDate < d.startDate
+      ? "Ngày nghỉ việc phải sau ngày vào làm."
       : activeDays >= monthDays
-      ? `Bỏ trống = làm cả tháng. Tháng ${month}/${year}: làm đủ tháng.`
-      : activeDays === 0
-        ? `Tháng ${month}/${year}: không làm ngày nào → 0h, không xếp lịch.`
-        : `Tháng ${month}/${year}: làm ${activeDays}/${monthDays} ngày → khoảng ${
-            prorateForEmploymentPeriod(fullMinutes, draftEmp, year, month) / 60
-          }h (tính theo tỉ lệ ngày).`;
-  const daysOffOk = hasRequiredFixedDaysOff(draftEmp);
+        ? `Tháng ${month}/${year}: làm đủ tháng.`
+        : activeDays === 0
+          ? `Tháng ${month}/${year}: không làm ngày nào → 0h, không xếp lịch.`
+          : isAzubi
+            ? `Tháng ${month}/${year}: làm ${activeDays}/${monthDays} ngày. Azubi không tự tính giờ – nhập giờ riêng tháng này ở trên.`
+            : `Tháng ${month}/${year}: làm ${activeDays}/${monthDays} ngày → khoảng ${
+                prorateForEmploymentPeriod(stunden * 60, draftEmp, year, month) / 60
+              }h.`;
 
   const toggleDayOff = (weekday: WeekdayName) => {
     const selected = d.fixedDaysOff.includes(weekday);
@@ -379,203 +454,149 @@ function EmployeeSheet({
     set("fixedDaysOff", next);
   };
 
+  const canSave = !(showWorkRole && !d.workRole) && d.name.trim().length > 0;
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 p-0 sm:p-4"
       onClick={onClose}
     >
       <div
-        className="w-full sm:max-w-md max-h-[92vh] overflow-y-auto rounded-t-2xl sm:rounded-lg bg-white shadow-xl border border-slate-200"
+        className="flex w-full sm:max-w-md max-h-[94dvh] flex-col rounded-t-2xl sm:rounded-lg bg-white shadow-xl border border-slate-200"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="sticky top-0 bg-white border-b border-slate-200 px-4 py-3 flex items-center justify-between">
-          <h3 className="font-semibold text-slate-900">
-            {employee ? "Sửa nhân viên" : "Thêm nhân viên"}
-          </h3>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 text-xl leading-none">
+        <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
+          <h3 className="font-semibold text-slate-900">{employee ? "Sửa nhân viên" : "Thêm nhân viên"}</h3>
+          <button
+            onClick={onClose}
+            aria-label="Đóng"
+            className="-mr-2 h-10 w-10 rounded-full text-xl leading-none text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+          >
             ✕
           </button>
         </div>
 
-        <div className="px-4 py-3 space-y-4">
-          <label className="block">
-            <span className="text-xs text-slate-600">Tên</span>
-            <input
-              autoFocus={!employee}
-              className={`${inputClass} w-full mt-1`}
-              value={d.name}
-              onChange={(e) => set("name", e.target.value)}
-              placeholder="Tên nhân viên"
-            />
-          </label>
-
-          <div className="grid grid-cols-2 gap-3">
+        <div className="flex-1 overflow-y-auto overscroll-contain px-4 py-4 space-y-6">
+          <SheetSection title="Thông tin">
             <label className="block">
-              <span className="text-xs text-slate-600">Hình thức</span>
-              <select
-                className={`${inputClass} w-full mt-1`}
+              <FieldLabel>Tên</FieldLabel>
+              <input
+                autoFocus={!employee}
+                autoCapitalize="words"
+                autoComplete="off"
+                enterKeyHint="next"
+                className={`${inputClass} w-full`}
+                value={d.name}
+                onChange={(e) => set("name", e.target.value)}
+                placeholder="Tên nhân viên"
+              />
+            </label>
+            <div>
+              <FieldLabel>Hình thức</FieldLabel>
+              <Segmented<EmploymentType>
                 value={d.employmentType}
-                onChange={(e) => set("employmentType", e.target.value as EmploymentType)}
-              >
-                <option value="VOLLZEIT">Toàn thời gian</option>
-                <option value="TEILZEIT">Bán thời gian</option>
-                <option value="AZUBI">Azubi (học nghề)</option>
-              </select>
-            </label>
-            {showWorkRole ? (
-              <label className="block">
-                <span className="text-xs text-slate-600">Vị trí</span>
-                <select
-                  className={`${inputClass} w-full mt-1`}
-                  value={d.workRole}
-                  onChange={(e) => set("workRole", e.target.value as WorkRole | "")}
-                >
-                  <option value="">Chọn</option>
-                  <option value="KITCHEN">Bếp</option>
-                  <option value="SERVICE">Bồi</option>
-                </select>
-              </label>
-            ) : (
-              <span />
-            )}
-          </div>
-
-          {isAzubi ? (
-            <label className="block">
-              <span className="text-xs text-slate-600">
-                Giờ Azubi tháng {month}/{year}{" "}
-                {azubiMode === "school" ? "· kỳ học" : azubiMode === "mixed" ? "· học/làm" : "· chủ đặt"}
-              </span>
-              <div className="mt-1 flex items-center gap-2">
-                <input
-                  type="number"
-                  min={0}
-                  step={0.5}
-                  className={`${inputClass} w-32 ${azubiWarning ? "border-amber-400 text-amber-900" : ""}`}
-                  value={azubiMonthlyHours}
-                  disabled={schoolWholeMonth}
-                  onChange={(e) => setAzubiHours(Number(e.target.value))}
-                />
-                <span className="text-slate-400 text-sm">h</span>
-              </div>
-              {schoolWholeMonth && (
-                <span className="mt-1 block text-[11px] text-slate-500">
-                  Đi học cả tháng – không xếp ca (sửa kỳ học ở mục Azubi (tab Nhân viên)).
-                </span>
-              )}
-              {azubiMode === "mixed" && (
-                <span className="mt-1 block text-[11px] text-slate-500">
-                  Tháng vừa học vừa làm: chỉ xếp ca những ngày không đi học. Hãy nhập giờ
-                  cho tháng này.
-                </span>
-              )}
-              {azubiWarning && (
-                <span className="mt-1 block text-[11px] text-amber-700">
-                  Trên {AZUBI_MONTHLY_WARNING_HOURS}h/tháng lịch có thể khó xếp; số giờ vẫn giữ.
-                </span>
-              )}
-            </label>
-          ) : (
-            <label className="block">
-              <span className="text-xs text-slate-600">Giờ định mức / tháng</span>
-              <input
-                type="number"
-                inputMode="numeric"
-                min={0}
-                step={1}
-                className={`${inputClass} w-full mt-1`}
-                value={d.hours}
-                onChange={(e) => set("hours", e.target.value)}
+                onChange={(v) => set("employmentType", v)}
+                options={[
+                  { value: "VOLLZEIT", label: "Toàn TG" },
+                  { value: "TEILZEIT", label: "Bán TG" },
+                  { value: "AZUBI", label: "Azubi" },
+                ]}
               />
-              <span className={`mt-1 block text-xs ${info.ok ? "text-slate-500" : "text-rose-600"}`}>
-                {info.text}
-                {tooMany && (
-                  <span className="text-amber-600 font-medium"> · ⚠ &gt;{WARN_HOURS}h/tháng</span>
-                )}
-              </span>
-            </label>
-          )}
-
-          {/* Số ngày làm mong muốn / tuần */}
-          <label className="block">
-              <span className="text-xs text-slate-600">Số ngày làm / tuần (tùy chọn)</span>
-              <input
-                type="number"
-                inputMode="numeric"
-                min={1}
-                max={7}
-                step={1}
-                placeholder="Tự động theo nhu cầu"
-                className={`${inputClass} w-full mt-1`}
-                value={d.daysPerWeek}
-                onChange={(e) => set("daysPerWeek", e.target.value)}
-              />
-              <span className="mt-1 block text-xs text-slate-500">
-                Bỏ trống = tự động. Nếu đặt, người này làm <b>đúng</b> số ngày này mỗi tuần (trừ ngày nghỉ
-                cố định); giờ tháng được chia ra các ngày đó, cuối tuần dài hơn một chút.
-              </span>
-            </label>
-
-          {/* Ngày vào làm / nghỉ việc */}
-          <div>
-            <div className="grid grid-cols-2 gap-3">
-              <label className="block">
-                <span className="text-xs text-slate-600">Ngày vào làm (tùy chọn)</span>
-                <input
-                  type="date"
-                  className={`${inputClass} w-full mt-1`}
-                  value={d.startDate}
-                  max={d.endDate || undefined}
-                  onChange={(e) => set("startDate", e.target.value)}
-                />
-              </label>
-              <label className="block">
-                <span className="text-xs text-slate-600">Ngày nghỉ việc (tùy chọn)</span>
-                <input
-                  type="date"
-                  className={`${inputClass} w-full mt-1`}
-                  value={d.endDate}
-                  min={d.startDate || undefined}
-                  onChange={(e) => set("endDate", e.target.value)}
-                />
-              </label>
             </div>
-            <span className="mt-1 block text-xs text-slate-500">
-              {periodPreview}
-            </span>
-          </div>
-
-          {/* Lưu */}
-          <div className="flex flex-wrap gap-4 border-t border-slate-100 pt-3">
-            <label className="flex items-center gap-2 cursor-pointer select-none">
-              <input
-                type="checkbox"
-                checked={d.saved}
-                onChange={(e) => set("saved", e.target.checked)}
-                className="h-5 w-5 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
-              />
-              <span className={`text-sm ${d.saved ? "text-emerald-700 font-medium" : "text-slate-600"}`}>
-                Lưu (đã kiểm tra)
-              </span>
-            </label>
-          </div>
-
-          {/* Ngày nghỉ cố định (= chọn ngày làm trong tuần) */}
-          {requiredDaysOff > 0 && (
-            <div
-              className={`rounded-md border px-3 py-2 ${
-                daysOffOk ? "border-emerald-200 bg-emerald-50/70" : "border-amber-200 bg-amber-50/70"
-              }`}
-            >
-              <div className="mb-2 flex items-center justify-between">
-                <span className="text-xs font-medium text-slate-700">
-                  Ngày nghỉ cố định · chọn {requiredDaysOff} ngày/tuần
-                </span>
-                <span className={`text-xs ${daysOffOk ? "text-emerald-700" : "text-amber-700"}`}>
-                  {d.fixedDaysOff.length}/{requiredDaysOff}
-                </span>
+            {showWorkRole && (
+              <div>
+                <FieldLabel hint={!d.workRole ? "bắt buộc" : undefined}>Vị trí</FieldLabel>
+                <Segmented<WorkRole>
+                  value={d.workRole}
+                  onChange={(v) => set("workRole", v)}
+                  options={[
+                    { value: "KITCHEN", label: "Bếp" },
+                    { value: "SERVICE", label: "Bồi" },
+                  ]}
+                />
               </div>
-              <div className="grid grid-cols-7 gap-1.5">
+            )}
+          </SheetSection>
+
+          <SheetSection title="Giờ làm">
+            {!isAzubi ? (
+              <div>
+                <FieldLabel hint={info.text}>Giờ / tháng</FieldLabel>
+                <HoursInput value={d.hours} onChange={(v) => set("hours", v)} warn={tooMany} />
+                {!info.ok && <p className="mt-1 text-xs text-rose-600">{info.text}</p>}
+                {tooMany && <p className="mt-1 text-xs text-amber-700">⚠ trên {WARN_HOURS}h/tháng</p>}
+              </div>
+            ) : (
+              <>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <FieldLabel>Mức chung / tháng</FieldLabel>
+                    <HoursInput
+                      decimal
+                      value={String(azubiGeneral)}
+                      onChange={(v) => setAzubi({ monthlyHoursOutOfTerm: Math.max(0, Number(v) || 0) })}
+                    />
+                  </div>
+                  <div>
+                    <FieldLabel hint={azubiMode === "mixed" ? "bắt buộc" : undefined}>
+                      Tháng {month}/{year}
+                    </FieldLabel>
+                    {azubiMode === "school" && hasTermDates ? (
+                      <div className="rounded border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-500">
+                        0h · đi học
+                      </div>
+                    ) : (
+                      <HoursInput
+                        decimal
+                        warn={azubiWarning || (azubiMode === "mixed" && d.azubi.monthlyHoursByMonth?.[monthKey] === undefined)}
+                        placeholder={azubiMode === "mixed" ? "Nhập" : String(azubiGeneral)}
+                        value={String(
+                          (azubiMode === "work"
+                            ? d.azubi.workMonthHoursByMonth?.[monthKey]
+                            : d.azubi.monthlyHoursByMonth?.[monthKey]) ?? "",
+                        )}
+                        onChange={(v) =>
+                          setMonthMap(azubiMode === "work" ? "workMonthHoursByMonth" : "monthlyHoursByMonth", monthKey, v)
+                        }
+                      />
+                    )}
+                  </div>
+                </div>
+                <p className="text-xs text-slate-500">
+                  {azubiMode === "mixed"
+                    ? "Tháng này vừa đi học vừa đi làm: chỉ xếp ca ngày không đi học. App không tự tính giờ – hãy nhập."
+                    : azubiMode === "school" && hasTermDates
+                      ? "Đi học cả tháng – không xếp ca."
+                      : `Ô tháng ${month}/${year} để trống = dùng mức chung.`}
+                  {azubiWarning && ` ⚠ trên ${AZUBI_MONTHLY_WARNING_HOURS}h/tháng, lịch có thể khó xếp.`}
+                </p>
+              </>
+            )}
+            <div>
+              <FieldLabel hint="bỏ trống = tự động">Số ngày làm / tuần</FieldLabel>
+              <div className="grid grid-cols-8 gap-1">
+                {["", "1", "2", "3", "4", "5", "6", "7"].map((n) => (
+                  <button
+                    key={n || "auto"}
+                    type="button"
+                    aria-pressed={d.daysPerWeek === n}
+                    onClick={() => set("daysPerWeek", n)}
+                    className={`rounded-md border py-2.5 text-sm font-medium ${
+                      d.daysPerWeek === n
+                        ? "border-slate-900 bg-slate-900 text-white"
+                        : "border-slate-200 bg-white text-slate-600"
+                    }`}
+                  >
+                    {n || "Tự"}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </SheetSection>
+
+          {requiredDaysOff > 0 && (
+            <SheetSection title={`Ngày nghỉ cố định · chọn ${requiredDaysOff}`}>
+              <div className="grid grid-cols-7 gap-1">
                 {WEEKDAY_ORDER.map((weekday) => {
                   const selected = d.fixedDaysOff.includes(weekday);
                   const maxReached =
@@ -587,67 +608,198 @@ function EmployeeSheet({
                       aria-pressed={selected}
                       disabled={maxReached}
                       onClick={() => toggleDayOff(weekday)}
-                      className={`rounded border px-2 py-1.5 text-xs font-medium transition-colors ${
+                      className={`rounded-md border py-2.5 text-sm font-medium transition-colors ${
                         selected
                           ? "border-slate-900 bg-slate-900 text-white"
-                          : "border-slate-300 bg-white text-slate-600 hover:border-slate-500"
-                      } disabled:cursor-not-allowed disabled:opacity-60`}
+                          : "border-slate-200 bg-white text-slate-600"
+                      } disabled:opacity-40`}
                     >
                       {WEEKDAY_LABELS[weekday]}
                     </button>
                   );
                 })}
               </div>
-            </div>
+              {!daysOffOk && (
+                <p className="text-xs text-amber-700">
+                  Đã chọn {d.fixedDaysOff.length}/{requiredDaysOff} ngày.
+                </p>
+              )}
+            </SheetSection>
           )}
+
+          {isAzubi && (
+            <SheetSection title="Kỳ học (đi học không xếp ca)">
+              <label className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 px-3 py-2.5">
+                <span className="text-sm text-slate-700">Có lịch đi học</span>
+                <input
+                  type="checkbox"
+                  checked={d.azubi.inSchoolTerm && hasTermDates}
+                  onChange={(e) =>
+                    setAzubi(
+                      e.target.checked
+                        ? {
+                            inSchoolTerm: true,
+                            schoolTermStart: d.azubi.schoolTermStart ?? monthDates[0],
+                            schoolTermEnd: d.azubi.schoolTermEnd ?? monthDates[monthDates.length - 1],
+                          }
+                        : { inSchoolTerm: false, schoolTermStart: undefined, schoolTermEnd: undefined },
+                    )
+                  }
+                  className="h-6 w-6 rounded border-slate-300"
+                />
+              </label>
+              {d.azubi.inSchoolTerm && hasTermDates && (
+                <>
+                  <div className="grid grid-cols-2 gap-3">
+                    <label className="block">
+                      <FieldLabel>Từ ngày</FieldLabel>
+                      <input
+                        type="date"
+                        className={`${inputClass} w-full`}
+                        value={d.azubi.schoolTermStart ?? ""}
+                        max={d.azubi.schoolTermEnd}
+                        onChange={(e) => e.target.value && setAzubi({ schoolTermStart: e.target.value })}
+                      />
+                    </label>
+                    <label className="block">
+                      <FieldLabel>Đến ngày</FieldLabel>
+                      <input
+                        type="date"
+                        className={`${inputClass} w-full`}
+                        value={d.azubi.schoolTermEnd ?? ""}
+                        min={d.azubi.schoolTermStart}
+                        onChange={(e) => e.target.value && setAzubi({ schoolTermEnd: e.target.value })}
+                      />
+                    </label>
+                  </div>
+                  <div className="divide-y divide-slate-100 rounded-lg border border-slate-200">
+                    {termMonths.map(({ year: y, month: m }) => {
+                      const mode = azubiMonthMode(d.azubi, y, m);
+                      const key = azubiMonthKey(y, m);
+                      return (
+                        <div
+                          key={key}
+                          className={`flex items-center gap-3 px-3 py-2 ${y === year && m === month ? "bg-slate-50" : ""}`}
+                        >
+                          <span className="w-20 shrink-0 text-sm font-medium text-slate-700">
+                            {m}/{y}
+                          </span>
+                          {mode === "school" ? (
+                            <span className="text-sm text-slate-400">0h · đi học cả tháng</span>
+                          ) : (
+                            <div className="flex-1">
+                              <HoursInput
+                                decimal
+                                placeholder="Nhập giờ"
+                                warn={d.azubi.monthlyHoursByMonth?.[key] === undefined}
+                                value={String(d.azubi.monthlyHoursByMonth?.[key] ?? "")}
+                                onChange={(v) => setMonthMap("monthlyHoursByMonth", key, v)}
+                              />
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <p className="text-xs text-slate-500">Tháng vừa học vừa làm: nhập số giờ làm của tháng đó.</p>
+                </>
+              )}
+            </SheetSection>
+          )}
+
+          <SheetSection title="Thời gian làm việc">
+            {!showPeriod ? (
+              <button
+                type="button"
+                onClick={() => setShowPeriod(true)}
+                className="w-full rounded-lg border border-dashed border-slate-300 px-3 py-2.5 text-left text-sm text-slate-600"
+              >
+                + Ngày vào làm / nghỉ việc <span className="text-slate-400">(nếu không làm cả tháng)</span>
+              </button>
+            ) : (
+              <>
+                <div className="grid grid-cols-2 gap-3">
+                  <label className="block">
+                    <FieldLabel>Ngày vào làm</FieldLabel>
+                    <input
+                      type="date"
+                      className={`${inputClass} w-full`}
+                      value={d.startDate}
+                      max={d.endDate || undefined}
+                      onChange={(e) => set("startDate", e.target.value)}
+                    />
+                  </label>
+                  <label className="block">
+                    <FieldLabel>Ngày nghỉ việc</FieldLabel>
+                    <input
+                      type="date"
+                      className={`${inputClass} w-full`}
+                      value={d.endDate}
+                      min={d.startDate || undefined}
+                      onChange={(e) => set("endDate", e.target.value)}
+                    />
+                  </label>
+                </div>
+                <p className="text-xs text-slate-500">{periodPreview}</p>
+              </>
+            )}
+          </SheetSection>
+
+          <label className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 px-3 py-2.5">
+            <span className={`text-sm ${d.saved ? "font-medium text-emerald-700" : "text-slate-700"}`}>
+              Đã kiểm tra thông tin (Lưu)
+            </span>
+            <input
+              type="checkbox"
+              checked={d.saved}
+              onChange={(e) => set("saved", e.target.checked)}
+              className="h-6 w-6 rounded border-slate-300 text-emerald-600"
+            />
+          </label>
         </div>
 
-        <div className="sticky bottom-0 bg-white border-t border-slate-200 px-4 py-3">
+        <div className="border-t border-slate-200 px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
           {loeschFrage ? (
             <div className="flex items-center justify-between gap-3">
               <span className="text-sm text-slate-600">Xoá nhân viên này?</span>
               <div className="flex gap-2">
                 <button
                   onClick={() => setLoeschFrage(false)}
-                  className="rounded px-3 py-2 text-sm text-slate-600 hover:bg-slate-100"
+                  className="rounded-lg px-4 py-2.5 text-sm text-slate-600 hover:bg-slate-100"
                 >
                   Không
                 </button>
                 <button
                   onClick={onDelete}
-                  className="rounded bg-rose-600 px-3 py-2 text-sm font-medium text-white hover:bg-rose-700"
+                  className="rounded-lg bg-rose-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-rose-700"
                 >
                   Xoá
                 </button>
               </div>
             </div>
           ) : (
-            <div className="flex items-center justify-between gap-3">
-              {onDelete ? (
+            <div className="flex items-center gap-2">
+              {onDelete && (
                 <button
                   onClick={() => setLoeschFrage(true)}
-                  className="text-rose-600 hover:text-rose-800 text-sm font-medium"
+                  className="rounded-lg px-3 py-2.5 text-sm font-medium text-rose-600 hover:bg-rose-50"
                 >
                   Xoá
                 </button>
-              ) : (
-                <span />
               )}
-              <div className="flex gap-2">
-                <button
-                  onClick={onClose}
-                  className="rounded px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100"
-                >
-                  Huỷ
-                </button>
-                <button
-                  onClick={() => onSave(draftToEmployee(d))}
-                  disabled={showWorkRole && !d.workRole}
-                  className="rounded bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed"
-                >
-                  Lưu
-                </button>
-              </div>
+              <button
+                onClick={onClose}
+                className="ml-auto rounded-lg px-4 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-100"
+              >
+                Huỷ
+              </button>
+              <button
+                onClick={() => onSave(draftToEmployee(d))}
+                disabled={!canSave}
+                className="rounded-lg bg-slate-900 px-6 py-2.5 text-sm font-semibold text-white hover:bg-slate-700 disabled:opacity-40"
+              >
+                Lưu
+              </button>
             </div>
           )}
         </div>

@@ -68,59 +68,58 @@ function MainApp({ onLogout }: { onLogout: () => void }) {
   return (
     <div className="min-h-screen">
       <header className="no-print bg-slate-900 text-white shadow sticky top-0 z-30">
-        <div className="mx-auto max-w-[1500px] px-3 sm:px-4 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-          <div>
-            <h1 className="text-base sm:text-lg font-semibold">Lịch làm việc &amp; Bảng chấm công</h1>
-            <p className="text-xs text-slate-300">
-              {schedule.companyName || "Chưa có tên cửa hàng"} · {monthLabel(schedule.year, schedule.month)}
-              {store.remoteStatus !== "off" && (
-                <span
-                  className={
-                    store.remoteStatus === "error"
-                      ? "ml-2 text-rose-300"
-                      : "ml-2 text-slate-400"
-                  }
-                >
-                  ·{" "}
-                  {store.remoteStatus === "saving"
-                    ? "đang đồng bộ…"
-                    : store.remoteStatus === "error"
-                      ? "lỗi đồng bộ — dữ liệu chỉ lưu trên máy này"
-                      : "đã đồng bộ"}
-                </span>
-              )}
-            </p>
-            <p className="text-[11px] text-slate-400" title="Phiên bản đang chạy (ngày giờ deploy · mã commit)">
+        <div className="mx-auto max-w-[1500px] px-3 sm:px-4 py-2 sm:py-3">
+          {/* Zeile 1: Titel + Knöpfe; Zeile 2: Laden · Monat · Sync · Version (volle Breite). */}
+          <div className="flex items-center justify-between gap-2">
+            <h1 className="truncate text-sm sm:text-lg font-semibold">
+              <span className="sm:hidden">Lịch làm việc</span>
+              <span className="hidden sm:inline">Lịch làm việc &amp; Bảng chấm công</span>
+            </h1>
+            <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
+              <button
+                onClick={() => setShowDocs((v) => !v)}
+                className={`rounded px-2.5 py-1.5 text-xs sm:px-3 sm:py-2 sm:text-sm ${
+                  showDocs ? "bg-white text-slate-900" : "bg-slate-700 hover:bg-slate-600"
+                }`}
+              >
+                Tài liệu
+              </button>
+              <button
+                onClick={() => {
+                  if (confirm("Xoá toàn bộ dữ liệu?")) store.resetAll();
+                }}
+                className="rounded bg-slate-700 px-2.5 py-1.5 text-xs sm:px-3 sm:py-2 sm:text-sm hover:bg-slate-600"
+              >
+                Xoá dữ liệu
+              </button>
+              <button
+                onClick={() => {
+                  logout();
+                  onLogout();
+                }}
+                className="rounded bg-slate-700 px-2.5 py-1.5 text-xs sm:px-3 sm:py-2 sm:text-sm hover:bg-slate-600"
+              >
+                Đăng xuất
+              </button>
+            </div>
+          </div>
+          <p className="mt-0.5 text-xs text-slate-300">
+            {schedule.companyName || "Chưa có tên cửa hàng"} · {monthLabel(schedule.year, schedule.month)}
+            {store.remoteStatus !== "off" && (
+              <span className={store.remoteStatus === "error" ? "text-rose-300" : "text-slate-400"}>
+                {" · "}
+                {store.remoteStatus === "saving"
+                  ? "đang đồng bộ…"
+                  : store.remoteStatus === "error"
+                    ? "lỗi đồng bộ — dữ liệu chỉ lưu trên máy này"
+                    : "đã đồng bộ"}
+              </span>
+            )}
+            <span className="text-slate-500" title="Phiên bản đang chạy (ngày giờ deploy · mã commit)">
+              {" · "}
               {buildLabel()}
-            </p>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              onClick={() => setShowDocs((v) => !v)}
-              className={`rounded px-3 py-2 text-sm ${
-                showDocs ? "bg-white text-slate-900" : "bg-slate-700 hover:bg-slate-600"
-              }`}
-            >
-              Tài liệu
-            </button>
-            <button
-              onClick={() => {
-                if (confirm("Xoá toàn bộ dữ liệu?")) store.resetAll();
-              }}
-              className="rounded bg-slate-700 px-3 py-2 text-sm hover:bg-slate-600"
-            >
-              Xoá dữ liệu
-            </button>
-            <button
-              onClick={() => {
-                logout();
-                onLogout();
-              }}
-              className="rounded bg-slate-700 px-3 py-2 text-sm hover:bg-slate-600"
-            >
-              Đăng xuất
-            </button>
-          </div>
+            </span>
+          </p>
         </div>
       </header>
 
@@ -141,10 +140,10 @@ function MainApp({ onLogout }: { onLogout: () => void }) {
           </div>
 
           <nav className="no-print mx-auto max-w-[1500px] px-3 sm:px-4 mt-4">
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="-mx-3 flex items-center gap-2 overflow-x-auto px-3 pb-1 sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0">
               <button
                 onClick={() => setAskCreate(true)}
-                className="rounded-full bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-emerald-700"
+                className="shrink-0 rounded-full bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-emerald-700"
               >
                 + Tạo lịch làm việc
               </button>
@@ -153,7 +152,7 @@ function MainApp({ onLogout }: { onLogout: () => void }) {
                 <button
                   key={t.id}
                   onClick={() => setTab(t.id)}
-                  className={`px-3.5 py-2 text-sm font-medium rounded-full border ${
+                  className={`shrink-0 whitespace-nowrap px-3.5 py-2 text-sm font-medium rounded-full border ${
                     tab === t.id
                       ? "bg-slate-900 text-white border-slate-900"
                       : "bg-white text-slate-600 border-slate-200 hover:text-slate-900 hover:border-slate-300"

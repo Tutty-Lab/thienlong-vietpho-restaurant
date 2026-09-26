@@ -9,8 +9,9 @@ import { isEmployeeFixedDayOff } from "../lib/fixedDaysOff";
 import { employmentPeriodLabel } from "../lib/employmentPeriod";
 import { isEmployeeAvailableOn, unavailableReason } from "../lib/availability";
 
+// text-base (16px) auf dem Handy: iOS zoomt sonst beim Tippen hinein.
 const inputClass =
-  "rounded border border-slate-300 px-2 py-1.5 text-sm focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-500";
+  "w-full min-w-0 rounded-lg border border-slate-300 bg-white px-2.5 py-2.5 text-base sm:text-sm tabular-nums focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-500";
 
 export function ShiftCellEditor({
   store,
@@ -172,6 +173,7 @@ export function ShiftCellEditor({
                     <span className="text-xs text-slate-600 mb-1">Nghỉ (phút)</span>
                     <input
                       type="number"
+                      inputMode="numeric"
                       min={0}
                       step={5}
                       className={inputClass}
@@ -236,11 +238,11 @@ export function ShiftCellEditor({
           )}
         </div>
 
-        <div className="flex flex-wrap items-center gap-2 border-t border-slate-200 px-4 py-3">
+        <div className="flex flex-wrap items-center gap-2 border-t border-slate-200 px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
           <button
             onClick={save}
             disabled={!!parseError || blocked}
-            className="rounded bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 active:bg-slate-800 disabled:opacity-40"
+            className="rounded-lg bg-slate-900 px-5 py-2.5 text-sm font-semibold text-white hover:bg-slate-700 active:bg-slate-800 disabled:opacity-40"
           >
             {inactive ?? (fixedDayOff ? "Ngày nghỉ cố định" : shift ? "Lưu" : "Thêm ca")}
           </button>
@@ -251,7 +253,7 @@ export function ShiftCellEditor({
                   setFrei(employeeId, date);
                   onClose();
                 }}
-                className="rounded border border-slate-300 px-3 py-2 text-sm hover:bg-slate-50"
+                className="rounded-lg border border-slate-300 px-3 py-2.5 text-sm hover:bg-slate-50"
               >
                 Đánh dấu nghỉ
               </button>
@@ -260,7 +262,7 @@ export function ShiftCellEditor({
                   deleteShift(shift.id);
                   onClose();
                 }}
-                className="rounded border border-rose-300 text-rose-600 px-3 py-2 text-sm hover:bg-rose-50"
+                className="rounded-lg border border-rose-300 text-rose-600 px-3 py-2.5 text-sm hover:bg-rose-50"
               >
                 Xoá
               </button>

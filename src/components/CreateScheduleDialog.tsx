@@ -39,7 +39,7 @@ export function CreateScheduleDialog({
           <label className="flex flex-col">
             <span className="text-xs text-slate-600 mb-1">Tháng</span>
             <select
-              className="rounded border border-slate-300 px-2 py-2 text-sm"
+              className="rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-base sm:text-sm"
               value={month}
               onChange={(e) => setMonth(Number(e.target.value))}
             >
@@ -53,7 +53,7 @@ export function CreateScheduleDialog({
           <label className="flex flex-col">
             <span className="text-xs text-slate-600 mb-1">Năm</span>
             <select
-              className="rounded border border-slate-300 px-2 py-2 text-sm"
+              className="rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-base sm:text-sm"
               value={year}
               onChange={(e) => setYear(Number(e.target.value))}
             >
@@ -71,10 +71,10 @@ export function CreateScheduleDialog({
             </p>
           )}
         </div>
-        <div className="flex items-center gap-2 border-t border-slate-200 px-4 py-3">
+        <div className="flex items-center gap-2 border-t border-slate-200 px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
           <button
             onClick={() => onCreate(year, month)}
-            className="rounded bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700"
+            className="rounded-lg bg-slate-900 px-5 py-2.5 text-sm font-semibold text-white hover:bg-slate-700"
           >
             {existing ? "Tạo lại lịch" : "Tạo lịch"}
           </button>
