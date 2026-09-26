@@ -3,7 +3,7 @@
 // nie Mutation der Eingabe). Bezahlte Minuten werden automatisch neu berechnet.
 // ============================================================================
 
-import type { Shift } from "../types";
+import type { Shift, ShiftSegment } from "../types";
 import { format } from "date-fns";
 import { MONTH_NAMES_VI } from "./dateFormat";
 
@@ -21,42 +21,72 @@ export function paidFromTimes(
   return endMinutes - startMinutes - pauseMinutes;
 }
 
-/** Neue, manuell angelegte Schicht. */
+/**
+ * Zeiten einer Schicht aus 1 oder 2 Stücken (ca gãy). Zwei Stücke => geteilter
+ * Dienst: keine Pause (die Lücke ist die Ruhezeit), bezahlt = Summe der Stücke.
+ */
+export function shiftTimesFromPieces(
+  pieces: readonly ShiftSegment[],
+  pauseMinutes: number,
+): Pick<Shift, "startMinutes" | "endMinutes" | "pauseMinutes" | "paidMinutes" | "segments"> {
+  const sorted = [...pieces].sort((a, b) => a.startMinutes - b.startMinutes);
+  if (sorted.length > 1) {
+    return {
+      startMinutes: sorted[0].startMinutes,
+      endMinutes: sorted[sorted.length - 1].endMinutes,
+      pauseMinutes: 0,
+      paidMinutes: sorted.reduce((sum, g) => sum + g.endMinutes - g.startMinutes, 0),
+      segments: sorted.map((g) => ({ ...g })),
+    };
+  }
+  const [only] = sorted;
+  return {
+    startMinutes: only.startMinutes,
+    endMinutes: only.endMinutes,
+    pauseMinutes,
+    paidMinutes: paidFromTimes(only.startMinutes, only.endMinutes, pauseMinutes),
+    segments: undefined,
+  };
+}
+
+/** Fehler in den Stücken (Ende vor Beginn, Überlappung) – oder null. */
+export function piecesError(pieces: readonly ShiftSegment[]): string | null {
+  for (const g of pieces) {
+    if (g.endMinutes <= g.startMinutes) return "Giờ ra phải sau giờ vào.";
+  }
+  const sorted = [...pieces].sort((a, b) => a.startMinutes - b.startMinutes);
+  for (let i = 1; i < sorted.length; i++) {
+    if (sorted[i].startMinutes < sorted[i - 1].endMinutes) return "Ca 2 phải bắt đầu sau khi ca 1 kết thúc.";
+  }
+  return null;
+}
+
+/** Neue, manuell angelegte Schicht (1 Stück oder ca gãy mit 2 Stücken). */
 export function createManualShift(
   employeeId: string,
   date: string,
-  startMinutes: number,
-  endMinutes: number,
+  pieces: readonly ShiftSegment[],
   pauseMinutes: number,
 ): Shift {
   return {
     id: nextManualShiftId(),
     employeeId,
     date,
-    startMinutes,
-    endMinutes,
-    pauseMinutes,
-    paidMinutes: paidFromTimes(startMinutes, endMinutes, pauseMinutes),
+    ...shiftTimesFromPieces(pieces, pauseMinutes),
     shiftType: "CUSTOM",
     generated: false,
   };
 }
 
-/** Ändert Zeiten/Pause einer Schicht und berechnet bezahlte Minuten neu. */
-export function updateShiftTimes(
+/** Setzt die Stücke einer bestehenden Schicht neu (behält geteilte Dienste bei). */
+export function updateShiftPieces(
   shift: Shift,
-  changes: Partial<Pick<Shift, "startMinutes" | "endMinutes" | "pauseMinutes">>,
+  pieces: readonly ShiftSegment[],
+  pauseMinutes: number,
 ): Shift {
-  const startMinutes = changes.startMinutes ?? shift.startMinutes;
-  const endMinutes = changes.endMinutes ?? shift.endMinutes;
-  const pauseMinutes = changes.pauseMinutes ?? shift.pauseMinutes;
   return {
     ...shift,
-    segments: undefined,
-    startMinutes,
-    endMinutes,
-    pauseMinutes,
-    paidMinutes: paidFromTimes(startMinutes, endMinutes, pauseMinutes),
+    ...shiftTimesFromPieces(pieces, pauseMinutes),
     shiftType: "CUSTOM",
     generated: false,
   };

@@ -4,12 +4,12 @@
 // ============================================================================
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { Employee, Schedule, Shift } from "../types";
+import type { Employee, Schedule, Shift, ShiftSegment } from "../types";
 import { azubiMonthCapacityMinutes, generateSchedule } from "../lib/scheduler";
 import { validateSchedule, type ValidationResult } from "../lib/validation";
 import { clearState, loadState, saveState, type PersistedState } from "../lib/storage";
 import { isRemoteConfigured, loadRemote, saveRemote, type RemoteStatus } from "../lib/remote";
-import { createManualShift, updateShiftTimes } from "../lib/shiftOps";
+import { createManualShift, updateShiftPieces } from "../lib/shiftOps";
 import {
   defaultWorkHoursForStore,
   normalizeWorkHours,
@@ -441,21 +441,19 @@ export function useSchedule() {
     [schedule.shifts],
   );
 
-  const editShiftTimes = useCallback(
-    (
-      shiftId: string,
-      changes: Partial<Pick<Shift, "startMinutes" | "endMinutes" | "pauseMinutes">>,
-    ) => {
+  /** Zeiten einer Schicht ändern: 1 Stück oder ca gãy (2 Stücke). */
+  const editShiftPieces = useCallback(
+    (shiftId: string, pieces: ShiftSegment[], pauseMinutes: number) => {
       setSchedule((s) => ({
         ...s,
-        shifts: s.shifts.map((sh) => (sh.id === shiftId ? updateShiftTimes(sh, changes) : sh)),
+        shifts: s.shifts.map((sh) => (sh.id === shiftId ? updateShiftPieces(sh, pieces, pauseMinutes) : sh)),
       }));
     },
     [],
   );
 
   const addShift = useCallback(
-    (employeeId: string, date: string, start: number, end: number, pause: number) => {
+    (employeeId: string, date: string, pieces: ShiftSegment[], pause: number) => {
       setSchedule((s) => {
         const exists = s.shifts.some((sh) => sh.employeeId === employeeId && sh.date === date);
         if (exists) return s;
@@ -463,7 +461,7 @@ export function useSchedule() {
         if (employee && (isEmployeeFixedDayOff(employee, date) || !isEmployeeAvailableOn(employee, date))) {
           return s;
         }
-        return { ...s, shifts: [...s.shifts, createManualShift(employeeId, date, start, end, pause)] };
+        return { ...s, shifts: [...s.shifts, createManualShift(employeeId, date, pieces, pause)] };
       });
     },
     [storeId],
@@ -532,7 +530,7 @@ export function useSchedule() {
     upsertOverride,
     removeOverride,
     findShift,
-    editShiftTimes,
+    editShiftPieces,
     addShift,
     deleteShift,
     setFrei,
