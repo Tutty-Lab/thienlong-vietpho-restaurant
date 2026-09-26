@@ -181,7 +181,7 @@ type DayRow = {
   cells: string[]; // [datum/wd, beginn, ende, pause, arbeitszeit, bemerkung]
 };
 
-function stundenzettelRowsFor(
+export function stundenzettelRowsFor(
   schedule: Schedule,
   employee: Employee,
   dates: string[],
@@ -220,14 +220,32 @@ function stundenzettelRowsFor(
       return { shaded, shiftCount: 0, cells: [datum, "", "", "", "0,00", bemerkung] };
     }
 
-    const beginn = dienste.map((x) => minutesToTime(x.startMinutes)).join("\n");
-    const ende = dienste.map((x) => minutesToTime(x.endMinutes)).join("\n");
-    const pause = dienste.map((x) => `${x.pauseMinutes} Min`).join("\n");
-    const arbeitszeit = dienste.map((x) => minutesToDecimalHours(x.paidMinutes)).join("\n");
+    // Geteilter Dienst (ca gãy): jedes Stück als eigene Zeile mit eigener
+    // Arbeitszeit – nicht als ein durchgehender Block von Beginn bis Ende.
+    // Die Lücke dazwischen ist unbezahlt und keine Pause.
+    const pieces = dienste.flatMap((x) =>
+      x.segments && x.segments.length > 1
+        ? x.segments.map((g) => ({
+            start: g.startMinutes,
+            end: g.endMinutes,
+            pause: "",
+            paid: g.endMinutes - g.startMinutes,
+          }))
+        : [{
+            start: x.startMinutes,
+            end: x.endMinutes,
+            pause: x.pauseMinutes > 0 ? `${x.pauseMinutes} Min` : "",
+            paid: x.paidMinutes,
+          }],
+    );
+    const beginn = pieces.map((x) => minutesToTime(x.start)).join("\n");
+    const ende = pieces.map((x) => minutesToTime(x.end)).join("\n");
+    const pause = pieces.map((x) => x.pause).join("\n");
+    const arbeitszeit = pieces.map((x) => minutesToDecimalHours(x.paid)).join("\n");
     const bemerkung = holiday ? `Feiertag: ${holiday}` : "";
     return {
       shaded,
-      shiftCount: dienste.length,
+      shiftCount: pieces.length,
       cells: [datum, beginn, ende, pause, arbeitszeit, bemerkung],
     };
   });

@@ -57,3 +57,33 @@ describe("downloadPdfBlob", () => {
     expect(revokeObjectURL).toHaveBeenCalledWith("blob:pdf");
   });
 });
+
+describe("Stundenzettel: ca gãy", () => {
+  it("prints each piece of a split shift on its own line with its own hours", async () => {
+    const { stundenzettelRowsFor } = await import("../pdf");
+    const schedule = {
+      year: 2026, month: 9, holidayState: "BW", dateOverrides: [],
+      shifts: [
+        {
+          id: "s1", employeeId: "e1", date: "2026-09-02", startMinutes: 11 * 60, endMinutes: 20 * 60,
+          pauseMinutes: 0, paidMinutes: 7 * 60, shiftType: "CUSTOM", generated: true,
+          segments: [
+            { startMinutes: 11 * 60, endMinutes: 15 * 60 },
+            { startMinutes: 17 * 60, endMinutes: 20 * 60 },
+          ],
+        },
+        {
+          id: "s2", employeeId: "e1", date: "2026-09-03", startMinutes: 11 * 60, endMinutes: 18 * 60,
+          pauseMinutes: 30, paidMinutes: 6.5 * 60, shiftType: "CUSTOM", generated: true,
+        },
+      ],
+    } as never;
+    const employee = { id: "e1", name: "E", employmentType: "VOLLZEIT", targetMinutes: 0 } as never;
+    const { rows, totalMinutes } = stundenzettelRowsFor(schedule, employee, ["2026-09-02", "2026-09-03"]);
+    // [datum, beginn, ende, pause, arbeitszeit, bemerkung]
+    expect(rows[0].cells.slice(1, 5)).toEqual(["11:00\n17:00", "15:00\n20:00", "\n", "4,00\n3,00"]);
+    expect(rows[0].shiftCount).toBe(2);
+    expect(rows[1].cells.slice(1, 5)).toEqual(["11:00", "18:00", "30 Min", "6,50"]);
+    expect(totalMinutes).toBe(13.5 * 60);
+  });
+});

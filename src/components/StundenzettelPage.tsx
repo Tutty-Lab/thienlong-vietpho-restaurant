@@ -138,7 +138,15 @@ export function StundenzettelPage({
                     : ""}
                 </Td>
                 <Td className="text-center">{s && s.pauseMinutes > 0 ? `${s.pauseMinutes} Min` : ""}</Td>
-                <Td className="text-center">{s ? minutesToDecimalHours(s.paidMinutes) : "0,00"}</Td>
+                <Td className="text-center">
+                  {!s
+                    ? "0,00"
+                    : s.segments && s.segments.length > 1
+                      ? s.segments.map((g, i) => (
+                          <div key={i}>{minutesToDecimalHours(g.endMinutes - g.startMinutes)}</div>
+                        ))
+                      : minutesToDecimalHours(s.paidMinutes)}
+                </Td>
                 <Td className="text-left text-slate-500">{bemerkung}</Td>
               </tr>
             );
