@@ -3030,49 +3030,6 @@ function repairEveningPeak(state: SchedulerState): void {
   }
 }
 
-/** Fallback only for genuinely impossible inputs; no speculative monthly cap. */
-function buildUnmetMessage(
-  state: SchedulerState,
-  unmet: Employee[],
-  dates: string[],
-  dayOf: (isoDate: string) => ResolvedDay,
-): string {
-  const openDays = dates.filter((date) => !dayOf(date).closed).length;
-  const missing = unmet
-    .map((e) => {
-      const short = state.remaining.get(e.id)!;
-      const done = (e.targetMinutes - short) / 60;
-      return `${e.name}: ${done}h / ${e.targetMinutes / 60}h, còn thiếu ${short / 60}h`;
-    })
-    .join("; ");
-
-  if (openDays === 0) {
-    return (
-      `Không xếp được ca nào (${missing}). ` +
-      "Tháng này không có ngày mở cửa; hãy kiểm tra ngày đóng cửa và giờ làm."
-    );
-  }
-
-  // Azubi: Wochendecke (40 h) × Wochen des Monats begrenzt das Soll.
-  const weekCap = Math.round((AZUBI_HOURS_OUT_OF_TERM + AZUBI_WEEKLY_TARGET_FLEX_HOURS) * 60);
-  const azubiHints = unmet
-    .filter((e) => e.employmentType === "AZUBI")
-    .map((e) => {
-      const max = azubiCapacityMinutes(e, dates, dayOf);
-      return max < e.targetMinutes
-        ? `${e.name} tháng này tối đa ${max / 60}h (giới hạn ${weekCap / 60}h/tuần) – hãy đặt giờ riêng cho tháng này ở mục Azubi (tab Nhân viên) (≤ ${max / 60}h).`
-        : "";
-    })
-    .filter(Boolean);
-  if (azubiHints.length > 0) {
-    return `Không xếp đủ định mức: ${missing}. ${azubiHints.join(" ")}`;
-  }
-
-  return (
-    `Không xếp đủ định mức: ${missing}. ` +
-    "Hãy kiểm tra ngày nghỉ cố định hoặc giờ mở cửa của tháng này."
-  );
-}
 
 /**
  * Höchstes Monatssoll, das ein Azubi in diesem Monat überhaupt erreichen kann:
@@ -3095,6 +3052,56 @@ function azubiCapacityMinutes(
   let max = 0;
   for (const minutes of perWeek.values()) max += Math.min(weekCap, minutes);
   return max;
+}
+
+export type AzubiWeekCapacity = {
+  /** erster/letzter Tag der Woche innerhalb des Monats (yyyy-MM-dd) */
+  from: string;
+  to: string;
+  /** Tage, an denen gearbeitet werden darf (offen, kein Ruhetag, keine Schule …) */
+  workDays: string[];
+  /** Tage der Woche, die wegfallen, mit Grund */
+  blocked: { date: string; reason: string }[];
+  /** Summe der möglichen Tageslängen (max. 10 h/Tag) */
+  dayMinutes: number;
+  /** tatsächlich möglich = min(Wochendecke, dayMinutes) */
+  minutes: number;
+};
+
+/** Aufschlüsselung je Woche, warum ein Azubi-Soll (nicht) erreichbar ist. */
+export function azubiMonthCapacityBreakdown(
+  employee: Employee,
+  input: Pick<GenerateInput, "year" | "month" | "workHours" | "overrides" | "holidays" | "holidayState">,
+): { weeks: AzubiWeekCapacity[]; totalMinutes: number; weekCapMinutes: number } {
+  const holidays = input.holidays ?? holidaysOf(input.year, input.holidayState ?? "BW");
+  const overrides = input.overrides ?? {};
+  const weekCap = Math.round((AZUBI_HOURS_OUT_OF_TERM + AZUBI_WEEKLY_TARGET_FLEX_HOURS) * 60);
+  const weeks = new Map<string, AzubiWeekCapacity>();
+  for (const d of datesOfMonth(input.year, input.month)) {
+    const k = weekKeyOf(d);
+    const w = weeks.get(k) ?? { from: d, to: d, workDays: [], blocked: [], dayMinutes: 0, minutes: 0 };
+    w.to = d;
+    const day = resolveDay(input.workHours, d, holidays, overrides);
+    const reason = day.closed
+      ? "quán đóng cửa"
+      : isEmployeeFixedDayOff(employee, d)
+        ? "nghỉ cố định"
+        : !isEmployeeAvailableOn(employee, d)
+          ? "đi học / không làm"
+          : null;
+    if (reason) w.blocked.push({ date: d, reason });
+    else {
+      w.workDays.push(d);
+      w.dayMinutes += Math.min(MAX_DAILY_MINUTES, maxPaidForDay(day));
+    }
+    weeks.set(k, w);
+  }
+  let total = 0;
+  for (const w of weeks.values()) {
+    w.minutes = Math.min(weekCap, w.dayMinutes);
+    total += w.minutes;
+  }
+  return { weeks: [...weeks.values()], totalMinutes: total, weekCapMinutes: weekCap };
 }
 
 /** Öffentliche Variante für die UI (Hinweis + Schnellkorrektur je Monat). */
@@ -3343,10 +3350,9 @@ export function generateSchedule(input: GenerateInput): Shift[] {
     if (!incomplete(retry)) state = retry;
   }
 
-  const unmet = employees.filter((e) => state.remaining.get(e.id)! > 0);
-  if (unmet.length > 0) {
-    throw new Error(buildUnmetMessage(state, unmet, dates, dayOf));
-  }
+  // Nicht erreichbares Monatssoll (z. B. Azubi-Wochendecke 40 h) blockiert
+  // NICHT mehr (Wunsch Chef, Sept 2026): es wird so viel wie möglich geplant,
+  // die Prüfung zeigt den Rest als Warnung.
 
   repairDemand(state, employeesById);
   if (state.isThienlong && (state.useThienlongStaffingBands || state.useThienlongStaffingCounts)) {

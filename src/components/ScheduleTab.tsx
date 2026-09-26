@@ -1,8 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
 import { RoleBadge } from "./RoleBadge";
-import { AZUBI_HOURS_OUT_OF_TERM, AZUBI_WEEKLY_TARGET_FLEX_HOURS } from "../types";
-
-const AZUBI_WEEKLY_CAP_HOURS = AZUBI_HOURS_OUT_OF_TERM + AZUBI_WEEKLY_TARGET_FLEX_HOURS;
 import { SavedSchedulesButton } from "./SavedSchedules";
 import { worksDinner, worksLunch } from "../lib/shiftMeals";
 import type { UseScheduleReturn } from "../hooks/useSchedule";
@@ -22,6 +19,8 @@ import { monthLabel } from "../lib/shiftOps";
 import { ShiftCellEditor } from "./ShiftCellEditor";
 import { ScheduleDayView } from "./ScheduleDayView";
 import { ValidationPanel } from "./ValidationPanel";
+import { azubiCapacityReason } from "../lib/validation";
+import { azubiMonthCapacityBreakdown } from "../lib/scheduler";
 import { ShiftTimes } from "./ShiftTimes";
 import { isEmployeeFixedDayOff } from "../lib/fixedDaysOff";
 import { unavailableReason } from "../lib/availability";
@@ -180,22 +179,27 @@ export function ScheduleTab({ store }: { store: UseScheduleReturn }) {
 
       {/* Azubi không thể đủ giờ trong tháng này – sửa nhanh bằng giờ riêng cho tháng */}
       {store.azubiCapacityIssues.length > 0 && (
-        <div className="mb-3 rounded bg-amber-50 border border-amber-200 text-amber-900 text-sm px-3 py-2 space-y-2">
+        <div className="mb-3 rounded-lg bg-amber-50 border border-amber-200 text-amber-900 text-sm px-3 py-2 space-y-2">
           {store.azubiCapacityIssues.map(({ employee, maxMinutes }) => (
-            <div key={employee.id} className="flex flex-wrap items-center gap-2">
-              <span className="flex-1 min-w-[12rem]">
-                <b>{employee.name}</b>: tháng {schedule.month}/{schedule.year} tối đa chỉ xếp được{" "}
-                <b>{maxMinutes / 60}h</b> (giới hạn Azubi {AZUBI_WEEKLY_CAP_HOURS}h/tuần, ngày nghỉ cố định), không đủ{" "}
-                {employee.targetMinutes / 60}h.
-              </span>
-              <button
-                onClick={() =>
-                  store.setAzubiWorkMonthHours(employee.id, schedule.year, schedule.month, maxMinutes / 60)
-                }
-                className="rounded bg-amber-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-amber-700"
-              >
-                Đặt tháng {schedule.month}/{schedule.year} = {maxMinutes / 60}h
-              </button>
+            <div key={employee.id}>
+              <div>
+                <b>{employee.name}</b>: tháng {schedule.month}/{schedule.year} chỉ xếp được tối đa{" "}
+                <b>{maxMinutes / 60}h</b> / {employee.targetMinutes / 60}h. Lịch vẫn tạo được – app xếp{" "}
+                {maxMinutes / 60}h và để cảnh báo, không cần sửa.
+              </div>
+              <div className="mt-0.5 text-xs text-amber-800">
+                <span className="font-medium">Vì sao: </span>
+                {azubiCapacityReason(
+                  azubiMonthCapacityBreakdown(employee, {
+                    year: schedule.year,
+                    month: schedule.month,
+                    workHours: schedule.workHours,
+                    overrides: Object.fromEntries(schedule.dateOverrides.map((o) => [o.date, o])),
+                    holidayState: schedule.holidayState,
+                  }),
+                  employee.targetMinutes,
+                )}
+              </div>
             </div>
           ))}
         </div>

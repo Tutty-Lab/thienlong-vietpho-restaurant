@@ -17,6 +17,7 @@ import { resolveDay, type OverrideMap, type WorkHoursConfig } from "./workHours"
 import { vietphoPeakIntervals } from "./vietphoDemand";
 import { isEmployeeFixedDayOff } from "./fixedDaysOff";
 import { unavailableReason } from "./availability";
+import { azubiMonthCapacityBreakdown, type AzubiWeekCapacity } from "./scheduler";
 import { ROLES, dayRoleIssues, roleCountAt, roleLabel } from "./roleCoverage";
 
 export type ValidationErrorKind = "coverage" | "hours" | "shift" | "rule";
@@ -28,6 +29,8 @@ export type ValidationError = {
   message: string;
   /** Gruppe in der Anzeige (Thiếu người / Giờ định mức / Ca / Luật). */
   kind?: ValidationErrorKind;
+  /** "warning" = nur Hinweis (z. B. Soll wegen 40-h-Woche nicht ganz erreichbar). */
+  severity?: "warning";
   /** Warum das passiert. */
   reason?: string;
   /** Wie man es anders planen kann. */
@@ -198,16 +201,34 @@ export function validateSchedule(
     }
 
     if (assignedMinutes !== emp.targetMinutes) {
+      // Azubi: mehr Soll als die 40-h-Woche zulässt → kein Fehler, nur Hinweis.
+      const breakdown =
+        emp.employmentType === "AZUBI" && context
+          ? azubiMonthCapacityBreakdown(emp, {
+              year: context.year,
+              month: context.month,
+              workHours: context.workHours,
+              overrides: context.overrides,
+              holidayState: context.holidayState,
+            })
+          : null;
+      const capacity = breakdown?.totalMinutes ?? null;
+      const capped = capacity !== null && capacity < emp.targetMinutes && assignedMinutes <= emp.targetMinutes;
       errors.push({
         employeeId: emp.id,
-        message: `${emp.name}: chưa đạt giờ định mức: ${assignedMinutes / 60} h thay vì ${emp.targetMinutes / 60} h.`,
+        severity: "warning",
+        message: capped
+          ? `${emp.name}: xếp ${assignedMinutes / 60}h / ${emp.targetMinutes / 60}h – tháng này tối đa ${capacity! / 60}h.`
+          : `${emp.name}: chưa đạt giờ định mức: ${assignedMinutes / 60} h thay vì ${emp.targetMinutes / 60} h.`,
         kind: "hours",
-        reason:
-          assignedMinutes < emp.targetMinutes
+        reason: capped
+          ? azubiCapacityReason(breakdown!, emp.targetMinutes)
+          : assignedMinutes < emp.targetMinutes
             ? `Thiếu ${(emp.targetMinutes - assignedMinutes) / 60}h so với giờ tháng – thường do sửa/xoá ca bằng tay.`
             : `Thừa ${(assignedMinutes - emp.targetMinutes) / 60}h so với giờ tháng – thường do sửa/thêm ca bằng tay.`,
-        suggestion:
-          assignedMinutes < emp.targetMinutes
+        suggestion: capped
+          ? `Không cần làm gì – lịch vẫn dùng được. ${(emp.targetMinutes - assignedMinutes) / 60}h còn lại không xếp được trong tháng này.`
+          : assignedMinutes < emp.targetMinutes
             ? "Kéo dài một vài ca của người này, hoặc bấm “+ Tạo lịch làm việc” để tạo lại."
             : "Rút ngắn một vài ca của người này, hoặc tạo lại lịch.",
       });
@@ -290,7 +311,7 @@ export function validateSchedule(
     }
   }
 
-  return { valid: errors.length === 0, errors, summaries };
+  return { valid: errors.every((e) => e.severity === "warning"), errors, summaries };
 }
 
 const employeesByIdOf = (employees: Employee[]) => new Map(employees.map((e) => [e.id, e] as const));
@@ -327,6 +348,27 @@ function roleErrorsForDay(
         !isEmployeeFixedDayOff(e, date) &&
         unavailableReason(e, date) === null,
     ).length;
+  // „Bồi đi làm được hôm nay: Qui, Patrizia. Vắng: Thuy (nghỉ cố định), Hằng (đi học)."
+  const whoText = (role: WorkRole): string => {
+    const team = employees.filter((e) => e.workRole === role);
+    const working = dayShifts.filter((s) => roleOf(s) === role).map((s) => byId.get(s.employeeId)!.name);
+    const away = team
+      .map((e) => {
+        const why = isEmployeeFixedDayOff(e, date)
+          ? "nghỉ cố định"
+          : unavailableReason(e, date)?.toLowerCase() ?? (e.targetMinutes <= 0 ? "0h tháng này" : null);
+        return why ? `${e.name} (${why})` : null;
+      })
+      .filter(Boolean);
+    const free = team
+      .filter((e) => !working.includes(e.name) && !away.some((a) => a!.startsWith(e.name)))
+      .map((e) => e.name);
+    return (
+      `${roleLabel(role)} có ca hôm nay: ${working.length > 0 ? working.join(", ") : "không ai"}.` +
+      (away.length > 0 ? ` Vắng: ${away.join(", ")}.` : "") +
+      (free.length > 0 ? ` Có thể gọi thêm: ${free.join(", ")} (hôm nay không có ca).` : "")
+    );
+  };
   const suggestionFor = (role: WorkRole, times: number[]): string => {
     const other: WorkRole = role === "KITCHEN" ? "SERVICE" : "KITCHEN";
     const spare =
@@ -343,7 +385,7 @@ function roleErrorsForDay(
       date,
       kind: "coverage",
       message: `Ngày ${date}: không có ${roleLabel(g.role)} lúc ${slotText(g.slots)}.`,
-      reason: `Hôm nay chỉ có ${availableFor(g.role)} ${roleLabel(g.role)} đi làm được (còn lại nghỉ cố định, đi học hoặc nghỉ việc) và giờ làm của họ không phủ hết.`,
+      reason: `Không ai làm ${roleLabel(g.role)} trong các giờ này. ${whoText(g.role)}`,
       suggestion: suggestionFor(g.role, g.slots),
     });
   }
@@ -357,9 +399,10 @@ function roleErrorsForDay(
         `Ngày ${date}: cần ít nhất ${m.minStaff} ${label} từ ` +
         `${minutesToTime(m.startMinutes)}–${minutesToTime(m.endMinutes)} (thiếu lúc ${m.short.map(minutesToTime).join(", ")}).`,
       reason:
-        available < m.minStaff
-          ? `Hôm nay chỉ có ${available} ${label} đi làm được (nghỉ cố định/đi học/nghỉ việc) – không đủ người.`
-          : `Có ${available} người làm ${label} hôm nay nhưng giờ làm của họ không trùng đủ khung này.`,
+        (available < m.minStaff
+          ? `Hôm nay chỉ có ${available} ${label} đi làm được – không đủ người. `
+          : `Có ${available} ${label} đi làm được nhưng giờ làm của họ không trùng đủ khung này. `) +
+        whoText(m.role),
       suggestion: suggestionFor(m.role, m.short),
     });
   }
@@ -368,9 +411,49 @@ function roleErrorsForDay(
       date,
       kind: "coverage",
       message: `Ngày ${date}: ${roleLabel(e.role)} tối (${e.dinner}) ít hơn trưa (${e.lunch}).`,
-      reason: "Buổi tối đông khách hơn, nên mỗi vị trí phải có ít nhất bằng số người buổi trưa.",
+      reason: `Buổi tối đông khách hơn, nên mỗi vị trí phải có ít nhất bằng số người buổi trưa. ${whoText(e.role)}`,
       suggestion: `Dời một ca ${roleLabel(e.role)} chỉ làm trưa sang buổi tối, hoặc cho một người làm ca gãy trưa + tối.`,
     });
   }
   return out;
+}
+
+const DOW_VI = ["CN", "T2", "T3", "T4", "T5", "T6", "T7"];
+/** „T3 29.09" */
+export function shortDayLabel(iso: string): string {
+  const d = parseIsoDate(iso);
+  return `${DOW_VI[d.getDay()]} ${iso.slice(8, 10)}.${iso.slice(5, 7)}`;
+}
+const hoursText = (minutes: number) => `${Math.round((minutes / 60) * 10) / 10}h`.replace(".", ",");
+
+/**
+ * Warum ein Azubi-Soll nicht erreichbar ist – je Woche mit Tagen und Gründen,
+ * z. B. „28.–30.09: chỉ T3 29.09 (T2 28.09, T4 30.09 nghỉ cố định) → 10h".
+ */
+export function azubiCapacityReason(
+  breakdown: { weeks: AzubiWeekCapacity[]; totalMinutes: number; weekCapMinutes: number },
+  targetMinutes: number,
+): string {
+  const cap = breakdown.weekCapMinutes;
+  const parts = breakdown.weeks.map((w) => {
+    const range = w.from === w.to ? shortDayLabel(w.from) : `${w.from.slice(8, 10)}.–${shortDayLabel(w.to).slice(3)}`;
+    if (w.workDays.length === 0) return `${range}: không ngày nào làm được → 0h`;
+    if (w.minutes >= cap) return `${range}: ${w.workDays.length} ngày làm được → đủ ${hoursText(cap)}`;
+    const blocked = w.blocked.length > 0
+      ? ` (${w.blocked.map((b) => `${shortDayLabel(b.date)} ${b.reason}`).join(", ")})`
+      : "";
+    const days = w.workDays.length <= 2
+      ? `chỉ ${w.workDays.map(shortDayLabel).join(", ")}`
+      : `${w.workDays.length} ngày`;
+    return `${range}: ${days}${blocked} → tối đa ${hoursText(w.minutes)}`;
+  });
+  const shortWeeks = breakdown.weeks.filter((w) => w.minutes < cap).length;
+  return (
+    `Azubi tối đa ${hoursText(cap)}/tuần và 10h/ngày. ` +
+    parts.join(" · ") +
+    `. Tổng tối đa ${hoursText(breakdown.totalMinutes)} < ${hoursText(targetMinutes)}. ` +
+    (shortWeeks > 0
+      ? `Ca dài hơn cũng không bù được: các tuần đủ ngày đã chạm ${hoursText(cap)}, tuần thiếu ngày thì mỗi ngày tối đa 10h.`
+      : `Ca dài hơn cũng không bù được vì tuần nào cũng đã chạm ${hoursText(cap)}.`)
+  );
 }

@@ -135,12 +135,68 @@ function RoleSwitchFinder({ store }: { store: UseScheduleReturn }) {
   );
 }
 
-/** Lỗi kiểm tra: nach Art gruppiert, mit „Vì sao" und „Gợi ý". */
+/** Gruppierte Liste (Fehler rot, Warnungen gelb). */
+function IssueList({ items, tone }: { items: ValidationError[]; tone: "error" | "warning" }) {
+  const head =
+    tone === "error"
+      ? { box: "border-rose-200", bar: "border-rose-100 bg-rose-50 text-rose-800", pill: "bg-rose-100 text-rose-700" }
+      : { box: "border-amber-200", bar: "border-amber-100 bg-amber-50 text-amber-900", pill: "bg-amber-100 text-amber-800" };
+  return (
+    <div className={`rounded-lg border bg-white text-sm ${head.box}`}>
+      <div className={`border-b px-3 py-2 font-semibold ${head.bar}`}>
+        {tone === "error"
+          ? `${items.length} lỗi – lịch vẫn in được, nhưng nên xem lại`
+          : `${items.length} cảnh báo – không cần sửa, chỉ để biết`}
+      </div>
+      {GROUPS.map(({ kind, title }, gi) => {
+        const list = items.filter((e) => (e.kind ?? "rule") === kind);
+        if (list.length === 0) return null;
+        const byDate = new Map<string, ValidationError[]>();
+        for (const e of list) {
+          const key = e.date ?? "";
+          byDate.set(key, [...(byDate.get(key) ?? []), e]);
+        }
+        return (
+          <details key={kind} open={gi === 0 || list.length <= 3} className="group border-b border-slate-100 last:border-0">
+            <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2">
+              <span className="font-semibold text-slate-900">{title}</span>
+              <span className={`rounded-full px-2 text-xs font-medium ${head.pill}`}>{list.length}</span>
+              <span className="ml-auto text-xs text-slate-400 group-open:hidden">Mở ▾</span>
+              <span className="ml-auto hidden text-xs text-slate-400 group-open:inline">Thu gọn ▴</span>
+            </summary>
+            <div className="max-h-[50vh] overflow-y-auto px-3 pb-2">
+              {[...byDate.entries()]
+                .sort(([a], [b]) => a.localeCompare(b))
+                .map(([date, group]) => (
+                  <div key={date || "none"} className="border-t border-slate-100 first:border-0">
+                    {date && kind === "coverage" && (
+                      <div className="pt-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                        {dayLabel(date)}
+                      </div>
+                    )}
+                    <ul className="divide-y divide-slate-100">
+                      {group.map((e, i) => (
+                        <ErrorItem key={i} error={e} />
+                      ))}
+                    </ul>
+                  </div>
+                ))}
+            </div>
+          </details>
+        );
+      })}
+    </div>
+  );
+}
+
+/** Lỗi kiểm tra: nach Art gruppiert, mit „Vì sao" und „Gợi ý"; Warnungen getrennt. */
 export function ValidationPanel({ store }: { store: UseScheduleReturn }) {
   const { validation, genError, schedule } = store;
   const hasPlan = schedule.shifts.length > 0;
-  const errors = hasPlan ? validation.errors : [];
-  if (!genError && errors.length === 0) return null;
+  const all = hasPlan ? validation.errors : [];
+  const errors = all.filter((e) => e.severity !== "warning");
+  const warnings = all.filter((e) => e.severity === "warning");
+  if (!genError && all.length === 0) return null;
   const isThienlong = store.storeId === "thienlong";
   const hasRoleProblems = !!genError || errors.some((e) => e.kind === "coverage");
 
@@ -152,53 +208,8 @@ export function ValidationPanel({ store }: { store: UseScheduleReturn }) {
           <div className="mt-0.5 text-rose-700">{genError}</div>
         </div>
       )}
-
-      {errors.length > 0 && (
-        <div className="rounded-lg border border-rose-200 bg-white text-sm">
-          <div className="border-b border-rose-100 bg-rose-50 px-3 py-2 font-semibold text-rose-800">
-            {errors.length} lỗi kiểm tra – lịch vẫn in được, nhưng nên xem lại
-          </div>
-          {GROUPS.map(({ kind, title }, gi) => {
-            const list = errors.filter((e) => (e.kind ?? "rule") === kind);
-            if (list.length === 0) return null;
-            // Thiếu người: theo ngày
-            const byDate = new Map<string, ValidationError[]>();
-            for (const e of list) {
-              const key = e.date ?? "";
-              byDate.set(key, [...(byDate.get(key) ?? []), e]);
-            }
-            return (
-              <details key={kind} open={gi === 0 || list.length <= 3} className="group border-b border-slate-100 last:border-0">
-                <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2">
-                  <span className="font-semibold text-slate-900">{title}</span>
-                  <span className="rounded-full bg-rose-100 px-2 text-xs font-medium text-rose-700">{list.length}</span>
-                  <span className="ml-auto text-xs text-slate-400 group-open:hidden">Mở ▾</span>
-                  <span className="ml-auto hidden text-xs text-slate-400 group-open:inline">Thu gọn ▴</span>
-                </summary>
-                <div className="max-h-[50vh] overflow-y-auto px-3 pb-2">
-                  {[...byDate.entries()]
-                    .sort(([a], [b]) => a.localeCompare(b))
-                    .map(([date, items]) => (
-                      <div key={date || "none"} className="border-t border-slate-100 first:border-0">
-                        {date && kind === "coverage" && (
-                          <div className="pt-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                            {dayLabel(date)}
-                          </div>
-                        )}
-                        <ul className="divide-y divide-slate-100">
-                          {items.map((e, i) => (
-                            <ErrorItem key={i} error={e} />
-                          ))}
-                        </ul>
-                      </div>
-                    ))}
-                </div>
-              </details>
-            );
-          })}
-        </div>
-      )}
-
+      {errors.length > 0 && <IssueList items={errors} tone="error" />}
+      {warnings.length > 0 && <IssueList items={warnings} tone="warning" />}
       {isThienlong && hasRoleProblems && <RoleSwitchFinder store={store} />}
     </div>
   );

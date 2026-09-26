@@ -69,7 +69,7 @@ function evaluate(
       holidayState: ctx.holidayState ?? "BW",
       storeId: ctx.storeId,
       overrides: ctx.overrides,
-    }).errors;
+    }).errors.filter((e) => e.severity !== "warning");
     const coverage = errors.filter((e) => e.kind === "coverage");
     const shortRoles = (["KITCHEN", "SERVICE"] as const).filter((r) =>
       coverage.some((e) => e.message.includes(` ${roleLabel(r)} `) || e.message.includes(`${roleLabel(r)} tối`)),

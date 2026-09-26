@@ -21,13 +21,17 @@ export function Dashboard({ store }: { store: UseScheduleReturn }) {
   const plannedMin = schedule.shifts.reduce((s, x) => s + x.paidMinutes, 0);
   const notGenerated = schedule.shifts.length === 0;
 
+  const warnings = validation.errors.filter((e) => e.severity === "warning").length;
+  const realErrors = validation.errors.length - warnings;
   const statusValue = notGenerated
     ? readiness.ready
       ? "Sẵn sàng"
       : "Chưa sẵn sàng"
     : validation.valid
-      ? "Hợp lệ"
-      : `${validation.errors.length} lỗi`;
+      ? warnings > 0
+        ? `Hợp lệ · ${warnings} cảnh báo`
+        : "Hợp lệ"
+      : `${realErrors} lỗi${warnings > 0 ? ` · ${warnings} cảnh báo` : ""}`;
   const statusAccent = notGenerated
     ? readiness.ready
       ? "text-emerald-600"

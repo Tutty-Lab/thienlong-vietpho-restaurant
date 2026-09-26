@@ -258,3 +258,28 @@ describe("Thienlong when Azubis are away (school) – nobody replaces them", () 
     expect(monthRole(switched, 2026, 10)).toBe("KITCHEN");
   }, 120000);
 });
+
+describe("Azubi with more hours than the 40-h week allows – warn, never block", () => {
+  it("plans the maximum (170 h) and explains week by week why 174 h do not fit", () => {
+    const ctx = { year: 2026, month: 9, storeId: "thienlong", workHours: DEFAULT_WORK_HOURS, holidayState: "BW" as const };
+    const september = team.map((e) => (e.id === "tl" ? { ...e, desiredDaysPerWeek: 6 } : e));
+    const planned = generateSchedule({ ...ctx, employees: september }); // wirft nicht mehr
+    const lh = september.find((e) => e.id === "lh")!; // Azubi, nghỉ T2 + T4, 174 h
+    expect(planned.filter((s) => s.employeeId === "lh").reduce((sum, s) => sum + s.paidMinutes, 0)).toBe(170 * 60);
+
+    const result = validateSchedule(september, planned, ctx);
+    const warning = result.errors.find((e) => e.employeeId === "lh");
+    expect(warning?.severity).toBe("warning");
+    expect(warning?.message).toContain("tối đa 170h");
+    // Konkret: die letzte Woche hat nur Di 29.09, Mo 28. und Mi 30. sind Ruhetage.
+    expect(warning?.reason).toContain("chỉ T3 29.09");
+    expect(warning?.reason).toContain("T2 28.09 nghỉ cố định");
+    expect(warning?.reason).toContain("T4 30.09 nghỉ cố định");
+    expect(warning?.reason).toContain("Tổng tối đa 170h < 174h");
+    expect(lh.targetMinutes).toBe(174 * 60);
+    // Nur Warnungen → der Plan gilt als gültig.
+    expect(result.errors.filter((e) => e.severity !== "warning")).toEqual([]);
+    expect(result.valid).toBe(true);
+  });
+});
+
