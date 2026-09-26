@@ -3,6 +3,13 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import { VitePWA } from "vite-plugin-pwa";
 
+// Ohne @types/node: nur die Umgebungsvariablen, die Vercel beim Build setzt.
+declare const process: { env: Record<string, string | undefined> };
+
+// Version im Kopf der App: Build-Zeitpunkt + Commit (Vercel setzt die SHA).
+const BUILD_TIME = new Date().toISOString();
+const BUILD_SHA = (process.env.VERCEL_GIT_COMMIT_SHA ?? "local").slice(0, 7);
+
 export default defineConfig({
   // Die Vercel-Integration von Supabase legt die öffentlichen Schlüssel unter
   // NEXT_PUBLIC_* an (Next.js-Konvention). Dieses Projekt läuft auf Vite, das
@@ -10,6 +17,10 @@ export default defineConfig({
   // Achtung: NEXT_PUBLIC_*/VITE_* landen im öffentlichen Bundle. Niemals
   // Service-Role-Key oder Postgres-Passwort so benennen.
   envPrefix: ["VITE_", "NEXT_PUBLIC_"],
+  define: {
+    __BUILD_TIME__: JSON.stringify(BUILD_TIME),
+    __BUILD_SHA__: JSON.stringify(BUILD_SHA),
+  },
   plugins: [
     react(),
     VitePWA({

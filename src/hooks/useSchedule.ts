@@ -383,7 +383,9 @@ export function useSchedule() {
         storeId,
         workHours: schedule.workHours,
         overrides: overridesToMap(schedule.dateOverrides),
-        employees: schedule.employees,
+        // Direkt nach einem Monatswechsel sind die Monats-Solls (Azubi,
+        // Ein-/Austritt) evtl. noch nicht nachgezogen – hier sicher berechnen.
+        employees: schedule.employees.map((e) => normalizeEmployee(e, schedule.year, schedule.month)),
         holidayState: schedule.holidayState,
       });
       setSchedule((s) => ({ ...s, shifts }));

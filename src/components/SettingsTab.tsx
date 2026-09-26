@@ -287,8 +287,13 @@ export function SettingsTab({ store }: { store: UseScheduleReturn }) {
       </section>
 
       {store.storeId === "thienlong" && (
-        <section className="rounded-lg bg-white border border-slate-200 p-4 sm:p-5 shadow-sm">
-          <h2 className="text-base font-semibold text-slate-900 mb-1">Hệ số Zuschläge</h2>
+        <details className="group rounded-lg bg-white border border-slate-200 shadow-sm">
+          <summary className="flex cursor-pointer list-none items-center px-4 py-3 sm:px-5">
+            <h2 className="text-base font-semibold text-slate-900">Hệ số Zuschläge</h2>
+            <span className="ml-auto text-xs text-slate-400 group-open:hidden">Mở ▾</span>
+            <span className="ml-auto hidden text-xs text-slate-400 group-open:inline">Thu gọn ▴</span>
+          </summary>
+          <div className="border-t border-slate-100 px-4 pb-4 pt-3 sm:px-5 sm:pb-5">
           <p className="text-xs text-slate-500 mb-3">
             Dùng để quy đổi số giờ được cộng thêm trên bảng chấm công. Giờ sau 20:00 chỉ tính từ
             Thứ Hai đến Thứ Bảy; Chủ Nhật được tính riêng, không cộng chồng.
@@ -331,11 +336,17 @@ export function SettingsTab({ store }: { store: UseScheduleReturn }) {
               />
             </Field>
           </div>
-        </section>
+                  </div>
+        </details>
       )}
 
-      <section className="rounded-lg bg-white border border-slate-200 p-4 sm:p-5 shadow-sm">
-        <h2 className="text-base font-semibold text-slate-900 mb-1">Giờ làm theo ngày</h2>
+      <details className="group rounded-lg bg-white border border-slate-200 shadow-sm">
+        <summary className="flex cursor-pointer list-none items-center px-4 py-3 sm:px-5">
+          <h2 className="text-base font-semibold text-slate-900">Giờ làm theo ngày</h2>
+          <span className="ml-auto text-xs text-slate-400 group-open:hidden">Mở ▾</span>
+          <span className="ml-auto hidden text-xs text-slate-400 group-open:inline">Thu gọn ▴</span>
+        </summary>
+        <div className="border-t border-slate-100 px-4 pb-4 pt-3 sm:px-5 sm:pb-5">
         <p className="text-xs text-slate-500 mb-3">
           Đây là <span className="font-medium">khung giờ làm</span> (giờ xếp ca) cho mỗi ngày trong
           tuần. Ca sáng nằm trong khung đầu, ca tối nằm trong khung cuối. Ngày nào đóng cửa nghỉ
@@ -406,10 +417,16 @@ export function SettingsTab({ store }: { store: UseScheduleReturn }) {
             </ul>
           </div>
         )}
-      </section>
+              </div>
+      </details>
 
-      <section className="rounded-lg bg-white border border-slate-200 p-4 sm:p-5 shadow-sm">
-        <h2 className="text-base font-semibold text-slate-900 mb-1">Ngày đặc biệt</h2>
+      <details className="group rounded-lg bg-white border border-slate-200 shadow-sm">
+        <summary className="flex cursor-pointer list-none items-center px-4 py-3 sm:px-5">
+          <h2 className="text-base font-semibold text-slate-900">Ngày đặc biệt</h2>
+          <span className="ml-auto text-xs text-slate-400 group-open:hidden">Mở ▾</span>
+          <span className="ml-auto hidden text-xs text-slate-400 group-open:inline">Thu gọn ▴</span>
+        </summary>
+        <div className="border-t border-slate-100 px-4 pb-4 pt-3 sm:px-5 sm:pb-5">
         <p className="text-xs text-slate-500 mb-3">
           Cài đặt riêng cho một ngày cụ thể: <span className="font-medium">đóng cửa cả ngày</span> hoặc
           <span className="font-medium"> giờ làm riêng</span> (VD nghỉ nửa ngày). Sẽ ghi đè giờ theo thứ
@@ -520,7 +537,8 @@ export function SettingsTab({ store }: { store: UseScheduleReturn }) {
         ) : (
           <p className="mt-3 text-xs text-slate-400">Chưa có ngày đặc biệt nào.</p>
         )}
-      </section>
+              </div>
+      </details>
 
     </div>
   );

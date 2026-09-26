@@ -1,26 +1,38 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useSchedule } from "./hooks/useSchedule";
 import { SettingsTab } from "./components/SettingsTab";
 import { EmployeesTab } from "./components/EmployeesTab";
 import { ScheduleTab } from "./components/ScheduleTab";
 import { StundenzettelTab } from "./components/StundenzettelTab";
 import { DocsTab } from "./components/DocsTab";
-import { AzubiTab } from "./components/AzubiTab";
 import { Dashboard } from "./components/Dashboard";
 import { LockScreen } from "./components/LockScreen";
+import { CreateScheduleDialog } from "./components/CreateScheduleDialog";
 import { isAuthenticated, logout } from "./lib/auth";
 import { monthLabel } from "./lib/shiftOps";
 
-type TabId = "einstellungen" | "mitarbeiter" | "azubi" | "dienstplan" | "stundenzettel" | "docs";
+type TabId = "dienstplan" | "mitarbeiter" | "stundenzettel" | "einstellungen";
 
+// Häufig benutzt zuerst; Azubi steckt jetzt im Tab Nhân viên, Tài liệu oben rechts.
 const TABS: { id: TabId; label: string }[] = [
-  { id: "einstellungen", label: "Cài đặt" },
-  { id: "mitarbeiter", label: "Nhân viên" },
-  { id: "azubi", label: "Azubi" },
   { id: "dienstplan", label: "Lịch làm việc" },
+  { id: "mitarbeiter", label: "Nhân viên" },
   { id: "stundenzettel", label: "Bảng chấm công" },
-  { id: "docs", label: "Tài liệu" },
+  { id: "einstellungen", label: "Cài đặt" },
 ];
+
+/** „Bản 26.09.2026 14:05 · 4e14b3f" – Zeit des Deploys in deutscher Ortszeit. */
+function buildLabel(): string {
+  const time = new Date(__BUILD_TIME__).toLocaleString("de-DE", {
+    timeZone: "Europe/Berlin",
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+  return `Bản ${time.replace(",", "")} · ${__BUILD_SHA__}`;
+}
 
 export default function App() {
   const [unlocked, setUnlocked] = useState(() => isAuthenticated());
@@ -31,7 +43,27 @@ export default function App() {
 
 function MainApp({ onLogout }: { onLogout: () => void }) {
   const store = useSchedule();
-  const [tab, setTab] = useState<TabId>("einstellungen");
+  const [tab, setTab] = useState<TabId>("dienstplan");
+  const [showDocs, setShowDocs] = useState(false);
+  const [askCreate, setAskCreate] = useState(false);
+  // Nach dem Monatswechsel erst erzeugen, wenn der Zielmonat geladen ist.
+  const [pendingCreate, setPendingCreate] = useState<{ year: number; month: number } | null>(null);
+
+  const { schedule, generate, updateMeta } = store;
+  useEffect(() => {
+    if (!pendingCreate) return;
+    if (schedule.year !== pendingCreate.year || schedule.month !== pendingCreate.month) return;
+    setPendingCreate(null);
+    generate();
+  }, [pendingCreate, schedule.year, schedule.month, generate]);
+
+  const createFor = (year: number, month: number) => {
+    setAskCreate(false);
+    setShowDocs(false);
+    setTab("dienstplan");
+    if (year !== schedule.year || month !== schedule.month) updateMeta({ year, month });
+    setPendingCreate({ year, month });
+  };
 
   return (
     <div className="min-h-screen">
@@ -40,7 +72,7 @@ function MainApp({ onLogout }: { onLogout: () => void }) {
           <div>
             <h1 className="text-base sm:text-lg font-semibold">Lịch làm việc &amp; Bảng chấm công</h1>
             <p className="text-xs text-slate-300">
-              {store.schedule.companyName || "Chưa có tên cửa hàng"} · {monthLabel(store.schedule.year, store.schedule.month)}
+              {schedule.companyName || "Chưa có tên cửa hàng"} · {monthLabel(schedule.year, schedule.month)}
               {store.remoteStatus !== "off" && (
                 <span
                   className={
@@ -58,8 +90,19 @@ function MainApp({ onLogout }: { onLogout: () => void }) {
                 </span>
               )}
             </p>
+            <p className="text-[11px] text-slate-400" title="Phiên bản đang chạy (ngày giờ deploy · mã commit)">
+              {buildLabel()}
+            </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            <button
+              onClick={() => setShowDocs((v) => !v)}
+              className={`rounded px-3 py-2 text-sm ${
+                showDocs ? "bg-white text-slate-900" : "bg-slate-700 hover:bg-slate-600"
+              }`}
+            >
+              Tài liệu
+            </button>
             <button
               onClick={() => {
                 if (confirm("Xoá toàn bộ dữ liệu?")) store.resetAll();
@@ -81,39 +124,62 @@ function MainApp({ onLogout }: { onLogout: () => void }) {
         </div>
       </header>
 
-      <div className="no-print mx-auto max-w-[1500px] px-3 sm:px-4 pt-4">
-        <Dashboard store={store} />
-      </div>
+      {showDocs ? (
+        <main className="no-print mx-auto max-w-[1500px] px-3 sm:px-4 py-4">
+          <button
+            onClick={() => setShowDocs(false)}
+            className="mb-3 rounded border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50"
+          >
+            ← Quay lại
+          </button>
+          <DocsTab storeId={store.storeId} />
+        </main>
+      ) : (
+        <>
+          <div className="no-print mx-auto max-w-[1500px] px-3 sm:px-4 pt-4">
+            <Dashboard store={store} />
+          </div>
 
-      <nav className="no-print mx-auto max-w-[1500px] px-3 sm:px-4 mt-4">
-        <div className="flex flex-wrap gap-2">
-          {TABS.map((t) => (
-            <button
-              key={t.id}
-              onClick={() => setTab(t.id)}
-              className={`px-3.5 py-2 text-sm font-medium rounded-full border ${
-                tab === t.id
-                  ? "bg-slate-900 text-white border-slate-900"
-                  : "bg-white text-slate-600 border-slate-200 hover:text-slate-900 hover:border-slate-300"
-              }`}
-            >
-              {t.label}
-            </button>
-          ))}
-        </div>
-      </nav>
+          <nav className="no-print mx-auto max-w-[1500px] px-3 sm:px-4 mt-4">
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                onClick={() => setAskCreate(true)}
+                className="rounded-full bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-emerald-700"
+              >
+                + Tạo lịch làm việc
+              </button>
+              <span className="mx-1 hidden sm:inline h-6 w-px bg-slate-200" />
+              {TABS.map((t) => (
+                <button
+                  key={t.id}
+                  onClick={() => setTab(t.id)}
+                  className={`px-3.5 py-2 text-sm font-medium rounded-full border ${
+                    tab === t.id
+                      ? "bg-slate-900 text-white border-slate-900"
+                      : "bg-white text-slate-600 border-slate-200 hover:text-slate-900 hover:border-slate-300"
+                  }`}
+                >
+                  {t.label}
+                </button>
+              ))}
+            </div>
+          </nav>
 
-      <main className="mx-auto max-w-[1500px] px-3 sm:px-4 py-4">
-        <div className="no-print">
-          {tab === "einstellungen" && <SettingsTab store={store} />}
-          {tab === "mitarbeiter" && <EmployeesTab store={store} />}
-          {tab === "azubi" && <AzubiTab store={store} />}
-          {tab === "dienstplan" && <ScheduleTab store={store} />}
-          {tab === "docs" && <DocsTab storeId={store.storeId} />}
-        </div>
-        {/* Bảng chấm công chứa vùng in – luôn render khi tab active */}
-        {tab === "stundenzettel" && <StundenzettelTab store={store} />}
-      </main>
+          <main className="mx-auto max-w-[1500px] px-3 sm:px-4 py-4">
+            <div className="no-print">
+              {tab === "einstellungen" && <SettingsTab store={store} />}
+              {tab === "mitarbeiter" && <EmployeesTab store={store} />}
+              {tab === "dienstplan" && <ScheduleTab store={store} />}
+            </div>
+            {/* Bảng chấm công chứa vùng in – luôn render khi tab active */}
+            {tab === "stundenzettel" && <StundenzettelTab store={store} />}
+          </main>
+        </>
+      )}
+
+      {askCreate && (
+        <CreateScheduleDialog store={store} onClose={() => setAskCreate(false)} onCreate={createFor} />
+      )}
     </div>
   );
 }

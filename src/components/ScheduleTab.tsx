@@ -44,20 +44,9 @@ function localIsoDate(date: Date): string {
 }
 
 export function ScheduleTab({ store }: { store: UseScheduleReturn }) {
-  const { schedule, validation, readiness, generate, genError } = store;
+  const { schedule, validation, readiness, genError } = store;
 
   // Tháng này đã có lịch thì hỏi trước khi tạo lại – tránh mất lịch đã lưu.
-  const generateWithConfirm = () => {
-    if (
-      schedule.shifts.length > 0 &&
-      !window.confirm(
-        `${monthLabel(schedule.year, schedule.month)} đã có lịch. Tạo lại sẽ thay lịch hiện tại — tiếp tục?`,
-      )
-    ) {
-      return;
-    }
-    generate();
-  };
   const dates = useMemo(
     () => datesOfMonth(schedule.year, schedule.month),
     [schedule.year, schedule.month],
@@ -183,13 +172,6 @@ export function ScheduleTab({ store }: { store: UseScheduleReturn }) {
     <section>
       {/* Thanh thao tác */}
       <div className="flex flex-wrap items-center gap-2 mb-3">
-        <button
-          onClick={generateWithConfirm}
-          disabled={!readiness.ready}
-          className="rounded bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 active:bg-slate-800 disabled:opacity-40"
-        >
-          Tạo lịch làm việc
-        </button>
         <SavedSchedulesButton store={store} />
         <span className="ml-auto text-sm text-slate-500">{monthLabel(schedule.year, schedule.month)}</span>
       </div>

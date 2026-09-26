@@ -88,7 +88,7 @@ export function checkScheduleReadiness(
     );
     if (missing.length > 0) {
       issues.push(
-        `Tháng ${month}/${year} vừa học vừa làm – hãy nhập giờ làm tháng này ở tab Azubi cho: ${missing
+        `Tháng ${month}/${year} vừa học vừa làm – hãy nhập giờ làm tháng này ở mục Azubi (tab Nhân viên) cho: ${missing
           .map((employee) => employee.name)
           .join(", ")}.`,
       );

@@ -9,6 +9,7 @@ import {
   type WorkRole,
 } from "../types";
 import { splitTargetHours, teilzeitShiftCount } from "../lib/splitTargetHours";
+import { AzubiTab } from "./AzubiTab";
 import {
   activeDaysInMonth,
   employmentPeriodLabel,
@@ -122,7 +123,30 @@ function desiredDaysFromDraft(d: Draft): number | undefined {
   return Math.min(7, n);
 }
 
+/** Tab Nhân viên: Liste + (aufklappbar) Azubi-Einstellungen – früher eigener Tab. */
 export function EmployeesTab({ store }: { store: UseScheduleReturn }) {
+  const azubiCount = store.schedule.employees.filter((e) => e.employmentType === "AZUBI").length;
+  return (
+    <div className="space-y-4">
+      <EmployeesList store={store} />
+      {azubiCount > 0 && (
+        <details className="group rounded-lg bg-white border border-slate-200 shadow-sm">
+          <summary className="flex cursor-pointer list-none items-center gap-2 px-4 py-3">
+            <span className="text-base font-semibold text-slate-900">Azubi</span>
+            <span className="text-sm text-slate-500">kỳ học, giờ từng tháng ({azubiCount})</span>
+            <span className="ml-auto text-xs text-slate-400 group-open:hidden">Mở ▾</span>
+            <span className="ml-auto hidden text-xs text-slate-400 group-open:inline">Thu gọn ▴</span>
+          </summary>
+          <div className="border-t border-slate-100 p-3 sm:p-4">
+            <AzubiTab store={store} />
+          </div>
+        </details>
+      )}
+    </div>
+  );
+}
+
+function EmployeesList({ store }: { store: UseScheduleReturn }) {
   const { schedule, addEmployee, updateEmployee, removeEmployee } = store;
 
   const [offen, setOffen] = useState<null | "new" | string>(null);
@@ -335,7 +359,7 @@ function EmployeeSheet({
   const periodPreview = d.endDate && d.startDate && d.endDate < d.startDate
     ? "Ngày nghỉ việc phải sau ngày vào làm."
     : isAzubi && activeDays < monthDays
-      ? `Tháng ${month}/${year}: làm ${activeDays}/${monthDays} ngày. Azubi không tự tính giờ – hãy nhập giờ riêng cho tháng này ở tab Azubi.`
+      ? `Tháng ${month}/${year}: làm ${activeDays}/${monthDays} ngày. Azubi không tự tính giờ – hãy nhập giờ riêng cho tháng này ở mục Azubi (tab Nhân viên).`
       : activeDays >= monthDays
       ? `Bỏ trống = làm cả tháng. Tháng ${month}/${year}: làm đủ tháng.`
       : activeDays === 0
@@ -436,7 +460,7 @@ function EmployeeSheet({
               </div>
               {schoolWholeMonth && (
                 <span className="mt-1 block text-[11px] text-slate-500">
-                  Đi học cả tháng – không xếp ca (sửa kỳ học ở tab Azubi).
+                  Đi học cả tháng – không xếp ca (sửa kỳ học ở mục Azubi (tab Nhân viên)).
                 </span>
               )}
               {azubiMode === "mixed" && (

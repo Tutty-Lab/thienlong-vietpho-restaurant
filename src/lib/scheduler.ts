@@ -3054,7 +3054,7 @@ function buildUnmetMessage(
     .map((e) => {
       const max = azubiCapacityMinutes(e, dates, dayOf);
       return max < e.targetMinutes
-        ? `${e.name} tháng này tối đa ${max / 60}h (giới hạn ${weekCap / 60}h/tuần) – hãy đặt giờ riêng cho tháng này ở tab Azubi (≤ ${max / 60}h).`
+        ? `${e.name} tháng này tối đa ${max / 60}h (giới hạn ${weekCap / 60}h/tuần) – hãy đặt giờ riêng cho tháng này ở mục Azubi (tab Nhân viên) (≤ ${max / 60}h).`
         : "";
     })
     .filter(Boolean);
