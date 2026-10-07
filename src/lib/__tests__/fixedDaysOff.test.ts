@@ -109,69 +109,6 @@ describe("fixed weekly days off", () => {
     expect(teilzeit.fixedDaysOff).toBeUndefined();
   });
 
-  it("never schedules a Vietpho employee on the configured fixed weekday", () => {
-    const employee: Employee = {
-      id: "vietpho-fixed-off",
-      name: "Vietpho fixed off",
-      employmentType: "VOLLZEIT",
-      targetMinutes: 80 * 60,
-      fixedDaysOff: ["monday"],
-    };
-
-    const shifts = generateSchedule({
-      year: 2026,
-      month: 8,
-      storeId: "vietpho",
-      workHours: defaultWorkHoursForStore("vietpho"),
-      holidays: new Set<string>(),
-      employees: [employee],
-      seed: "vietpho-fixed-off",
-    });
-
-    expect(shifts.reduce((total, shift) => total + shift.paidMinutes, 0)).toBe(80 * 60);
-    expect(
-      shifts.every(
-        (shift) => weekdayKeyOf(parseIsoDate(shift.date)) !== "monday",
-      ),
-    ).toBe(true);
-  });
-
-  it("reports a manually placed Vietpho shift on a fixed day off", () => {
-    const employee: Employee = {
-      id: "vietpho-manual-fixed-off",
-      name: "Vietpho manual fixed off",
-      employmentType: "VOLLZEIT",
-      targetMinutes: 4 * 60,
-      fixedDaysOff: ["monday"],
-    };
-    const workHours = defaultWorkHoursForStore("vietpho");
-    const result = validateSchedule(
-      [employee],
-      [
-        {
-          id: "vietpho-manual-shift",
-          employeeId: employee.id,
-          date: "2026-08-03",
-          startMinutes: 11 * 60,
-          endMinutes: 15 * 60,
-          pauseMinutes: 0,
-          paidMinutes: 4 * 60,
-          shiftType: "CUSTOM",
-          generated: false,
-        },
-      ],
-      {
-        year: 2026,
-        month: 8,
-        storeId: "vietpho",
-        workHours,
-        holidayState: "BW",
-      },
-    );
-
-    expect(result.errors.some((error) => error.message.includes("ngày nghỉ cố định"))).toBe(true);
-  });
-
   it("keeps fixed days free while repairing Thienlong staffing", () => {
     const employees: Employee[] = Array.from({ length: 6 }, (_, index) => ({
       id: `staff-${index}`,

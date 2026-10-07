@@ -6,11 +6,6 @@ import {
   thienlongLateShiftRatio,
   thienlongRoleShare,
 } from "../lib/thienlongDemand";
-import {
-  VIETPHO_REFERENCE_INVOICES,
-  vietphoDemandWeight,
-  vietphoLateShiftRatio,
-} from "../lib/vietphoDemand";
 
 const WEEKDAY_ORDER: WeekdayKey[] = [
   "monday",
@@ -28,14 +23,6 @@ const THIENLONG_DAY_WEIGHTS = Object.fromEntries(
 
 const THIENLONG_LATE_SHIFT_RATIOS = Object.fromEntries(
   WEEKDAY_ORDER.map((weekday) => [weekday, thienlongLateShiftRatio(weekday)]),
-) as Record<WeekdayKey, number>;
-
-const VIETPHO_DAY_WEIGHTS = Object.fromEntries(
-  WEEKDAY_ORDER.map((weekday) => [weekday, vietphoDemandWeight(weekday)]),
-) as Record<WeekdayKey, number>;
-
-const VIETPHO_LATE_SHIFT_RATIOS = Object.fromEntries(
-  WEEKDAY_ORDER.map((weekday) => [weekday, vietphoLateShiftRatio(weekday)]),
 ) as Record<WeekdayKey, number>;
 
 function roleRatio(kitchenShare: number, serviceShare: number): string {
@@ -121,10 +108,8 @@ function WeekdayTable({
 
 export function DocsTab({ storeId }: { storeId: string }) {
   const isThienlong = storeId === "thienlong";
-  const dayWeights = isThienlong ? THIENLONG_DAY_WEIGHTS : VIETPHO_DAY_WEIGHTS;
-  const lateShiftRatios = isThienlong
-    ? THIENLONG_LATE_SHIFT_RATIOS
-    : VIETPHO_LATE_SHIFT_RATIOS;
+  const dayWeights = THIENLONG_DAY_WEIGHTS;
+  const lateShiftRatios = THIENLONG_LATE_SHIFT_RATIOS;
   const weekdayKitchen = thienlongRoleShare("monday", "KITCHEN");
   const weekdayService = thienlongRoleShare("monday", "SERVICE");
   const weekdayLunchKitchen = demandShareBetween("monday", "KITCHEN", 10 * 60 + 30, 15 * 60);
@@ -143,9 +128,7 @@ export function DocsTab({ storeId }: { storeId: string }) {
       <div className="rounded-lg bg-slate-900 text-white p-4 sm:p-5">
         <h1 className="text-lg font-semibold">Tài liệu — cách xếp lịch hoạt động</h1>
         <p className="text-sm text-slate-300 mt-1">
-          {isThienlong
-            ? "Thienlong dùng tỷ lệ Bếp/Bồi từ lịch thực tế mẫu và tự co giãn theo tổng giờ tháng."
-            : "Vietpho dùng profile riêng: ca ngắn hơn, không tách Bếp/Bồi và ưu tiên hai giờ cao điểm."}
+          Thienlong dùng tỷ lệ Bếp/Bồi từ lịch thực tế mẫu và tự co giãn theo tổng giờ tháng.
         </p>
       </div>
 
@@ -219,21 +202,6 @@ export function DocsTab({ storeId }: { storeId: string }) {
             T6 và T7 là hai ngày đông nhất; Chủ Nhật chỉ nhỉnh hơn T2-T5. Tổng số người
             thực tế vẫn phụ thuộc tổng giờ có thể phân bổ trong ngày đó.
           </p>
-        </Section>
-      )}
-
-      {!isThienlong && (
-        <Section title="Vietpho: profile riêng, không tách Bếp / Bồi">
-          <p>
-            Mốc tham chiếu của Vietpho là <b>{VIETPHO_REFERENCE_INVOICES} Rechnungen inkl. Steuer</b>.
-            Tiệm ít nhân viên và Umsatz thấp hơn Thienlong nên thuật toán không dùng tỷ lệ Bếp/Bồi.
-          </p>
-          <ul className="list-disc pl-5 space-y-1">
-            <li>Nhân viên bắt đầu đúng giờ mở cửa, không đến sớm 30 phút.</li>
-            <li>Ca ngắn hơn Thienlong khoảng 1–2 giờ, tối đa <b>8h/ca</b>.</li>
-            <li>Luôn ưu tiên ít nhất <b>2 người lúc 12:30–13:00 và 18:00–20:00</b>.</li>
-            <li>T6/T7 chỉ cao hơn ngày thường khoảng <b>20%</b>; Chủ Nhật nhỉnh hơn nhẹ.</li>
-          </ul>
         </Section>
       )}
 

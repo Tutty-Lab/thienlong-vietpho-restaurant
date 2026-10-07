@@ -381,9 +381,7 @@ export function SettingsTab({ store }: { store: UseScheduleReturn }) {
           }}
           className="mt-3 text-xs text-slate-500 hover:text-slate-900 underline"
         >
-          {store.storeId === "vietpho"
-            ? "Đặt lại giờ mặc định Vietpho (nhân viên bắt đầu đúng giờ mở cửa)"
-            : "Đặt lại giờ mặc định Thienlong (nhân viên đến trước giờ mở cửa 30 phút)"}
+          Đặt lại giờ mặc định Thienlong (nhân viên đến trước giờ mở cửa 30 phút)
         </button>
 
         {holidaysThisMonth.length > 0 && (

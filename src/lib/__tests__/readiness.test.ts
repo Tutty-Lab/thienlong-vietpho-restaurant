@@ -90,7 +90,7 @@ describe("Schedule readiness", () => {
 
     const incomplete = checkScheduleReadiness(
       [employee(), azubi],
-      { requireFixedDaysOff: true, storeId: "vietpho" },
+      { requireFixedDaysOff: true },
     );
     expect(incomplete.ready).toBe(false);
     expect(incomplete.issues).toContain(
@@ -105,7 +105,7 @@ describe("Schedule readiness", () => {
         employee({ fixedDaysOff: ["monday"] }),
         { ...azubi, fixedDaysOff: ["saturday", "sunday"] },
       ],
-      { requireFixedDaysOff: true, storeId: "vietpho" },
+      { requireFixedDaysOff: true },
     );
     expect(complete.ready).toBe(true);
   });

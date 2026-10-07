@@ -22,12 +22,6 @@ export const STORES: StoreConfig[] = [
     address: "Olgastraße 5, 89518 Heidenheim",
     holidayState: "BW", // Heidenheim liegt in Baden-Württemberg
   },
-  {
-    id: "vietpho",
-    name: "Viet Pho Restaurant",
-    address: "Olgastraße 12, 89518 Heidenheim",
-    holidayState: "BW",
-  },
 ];
 
 export const DEFAULT_STORE_ID = STORES[0].id;

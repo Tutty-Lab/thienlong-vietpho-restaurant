@@ -72,12 +72,6 @@ import {
   thienlongMealPeakIntervals,
   thienlongStaffingProfile,
 } from "./thienlongDemand";
-import {
-  vietphoDemandIntervals,
-  vietphoDemandWeight,
-  vietphoLateShiftRatio,
-  vietphoPeakIntervals,
-} from "./vietphoDemand";
 
 export type GenerateInput = {
   year: number;
@@ -126,7 +120,6 @@ type SchedulerState = {
   holidays: Set<string>;
   employeesById: Map<string, Employee>;
   isThienlong: boolean;
-  isVietpho: boolean;
   /** Current workforce has enough monthly hours for the 6-7 / 7-8 staffing bands. */
   useThienlongStaffingBands: boolean;
   /** Current workforce has enough visits to keep the requested headcount floor. */
@@ -225,13 +218,6 @@ const ALLOWED_HOURS: Record<Employee["employmentType"], readonly number[]> = {
 /** Alle überhaupt zulässigen Längen – Rückfall, wenn das Fenster eng ist. */
 const ALL_HOURS: readonly number[] = [3, 3.5, 4, 4.5, 5, 5.5, 6, 6.5, 7, 7.5, 8, 8.5, 9, 9.5, 10];
 
-const VIETPHO_ALLOWED_HOURS: Record<Employee["employmentType"], readonly number[]> = {
-  VOLLZEIT: [4, 4.5, 5, 5.5, 6, 6.5, 7, 7.5, 8],
-  TEILZEIT: [1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5, 5.5, 6, 6.5, 7, 7.5, 8],
-  AZUBI: [1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5, 5.5, 6, 6.5, 7, 7.5, 8],
-};
-const VIETPHO_ALL_HOURS = VIETPHO_ALLOWED_HOURS.TEILZEIT;
-
 /**
  * Lässt sich `hours` restlos in Schichten aus `allowed` zerlegen?
  * Nötig, weil z.B. 11 h mit nur 6/7/8-h-Schichten nicht aufgeht – ohne diese
@@ -287,12 +273,12 @@ export function chooseShiftHours(
   needHours = 8,
   /** Ohne Zufallsquelle wird deterministisch die kürzeste taugliche gewählt. */
   rng?: () => number,
-  profile: "default" | "thienlong" | "vietpho" = "default",
+  profile: "default" | "thienlong" = "default",
 ): number {
   const remainingHours = remainingMinutes / 60;
-  const allowedByType = profile === "vietpho" ? VIETPHO_ALLOWED_HOURS : ALLOWED_HOURS;
-  const allHours = profile === "vietpho" ? VIETPHO_ALL_HOURS : ALL_HOURS;
-  const dailyCapHours = profile === "vietpho" ? 8 : MAX_DAILY_MINUTES / 60;
+  const allowedByType = ALLOWED_HOURS;
+  const allHours = ALL_HOURS;
+  const dailyCapHours = MAX_DAILY_MINUTES / 60;
   const cap = Math.min(dailyCapHours, maxHours, remainingHours);
   const employeeMinimum = Math.min(...allowedByType[employmentType]);
   if (employmentType === "AZUBI" && remainingHours < employeeMinimum) {
@@ -333,13 +319,6 @@ export function chooseShiftHours(
   // Schichten; wer gut liegt, bekommt Abwechslung.
   const onPace = valid.filter((h) => h >= needHours);
   const pool = onPace.length > 0 ? onPace : [valid[valid.length - 1]];
-
-  if (profile === "vietpho" && employmentType !== "VOLLZEIT") {
-    const shortestOnPace = pool[0];
-    const shortPool = pool.filter((hours) => hours <= shortestOnPace + 0.5);
-    if (!rng) return shortPool[0];
-    return shortPool[Math.floor(rng() * shortPool.length)];
-  }
 
   if (!rng) {
     return profile === "thienlong"
@@ -473,38 +452,6 @@ function roleShiftsOnDate(
       shift.date === isoDate &&
       state.employeesById.get(shift.employeeId)?.workRole === employee.workRole,
   );
-}
-
-function vietphoDemandOf(state: SchedulerState, isoDate: string) {
-  if (!state.isVietpho) return null;
-  return clipDemandIntervals(
-    vietphoDemandIntervals(
-      weekdayKeyOf(parseIsoDate(isoDate)),
-      state.rawTarget.get(isoDate) ?? 0,
-      state.holidays.has(isoDate),
-    ),
-    state.dayOf(isoDate).blocks,
-  );
-}
-
-function vietphoShiftsOnDate(state: SchedulerState, isoDate: string): Shift[] {
-  return state.shifts.filter((shift) => shift.date === isoDate);
-}
-
-function vietphoPeakDemand(state: SchedulerState, isoDate: string) {
-  const blocks = state.dayOf(isoDate).blocks;
-  return vietphoPeakIntervals()
-    .filter((peak) =>
-      blocks.some(
-        (block) =>
-          block.startMinutes <= peak.startMinutes && block.endMinutes >= peak.endMinutes,
-      ),
-    )
-    .map((peak) => ({
-      startMinutes: peak.startMinutes,
-      endMinutes: peak.endMinutes,
-      personMinutes: (peak.endMinutes - peak.startMinutes) * peak.minStaff,
-    }));
 }
 
 function customContinuousShift(
@@ -651,214 +598,6 @@ function thienlongCandidates(
   return [...unique.values()];
 }
 
-function customVietphoSplitShift(
-  employee: Employee,
-  isoDate: string,
-  paidMinutes: number,
-  blocks: ResolvedDay["blocks"],
-): Shift | null {
-  if (paidMinutes < 2.5 * 60) return null;
-  const lunchPeak = { startMinutes: 12 * 60 + 30, endMinutes: 13 * 60 };
-  const eveningPeak = { startMinutes: 18 * 60, endMinutes: 20 * 60 };
-  const lunchIndex = blocks.findIndex(
-    (block) =>
-      block.startMinutes <= lunchPeak.startMinutes && block.endMinutes >= lunchPeak.endMinutes,
-  );
-  const eveningIndex = blocks.findIndex(
-    (block) =>
-      block.startMinutes <= eveningPeak.startMinutes && block.endMinutes >= eveningPeak.endMinutes,
-  );
-  if (lunchIndex < 0 || eveningIndex < 0) return null;
-
-  const lunch = blocks[lunchIndex];
-  const evening = blocks[eveningIndex];
-
-  const lunchCap = lunch.endMinutes - lunch.startMinutes;
-  const sameBlock = lunchIndex === eveningIndex;
-  const eveningCap =
-    evening.endMinutes - (sameBlock ? lunchPeak.endMinutes : evening.startMinutes);
-  const minimumLunchMinutes = lunchPeak.endMinutes - lunchPeak.startMinutes;
-  const minimumEveningMinutes = eveningPeak.endMinutes - eveningPeak.startMinutes;
-  const eveningMinutes = Math.min(paidMinutes - minimumLunchMinutes, eveningCap);
-  const lunchMinutes = paidMinutes - eveningMinutes;
-  if (
-    lunchMinutes < minimumLunchMinutes ||
-    lunchMinutes > lunchCap ||
-    eveningMinutes < minimumEveningMinutes
-  ) {
-    return null;
-  }
-
-  let lunchStart = Math.max(lunch.startMinutes, lunchPeak.endMinutes - lunchMinutes);
-  if (lunchStart + lunchMinutes > lunch.endMinutes) {
-    lunchStart = lunch.endMinutes - lunchMinutes;
-  }
-  const eveningStart = Math.max(
-    evening.startMinutes,
-    Math.min(eveningPeak.startMinutes, evening.endMinutes - eveningMinutes),
-  );
-  const segments = [
-    { startMinutes: lunchStart, endMinutes: lunchStart + lunchMinutes },
-    { startMinutes: eveningStart, endMinutes: eveningStart + eveningMinutes },
-  ];
-  if (
-    segments[0].startMinutes > lunchPeak.startMinutes ||
-    segments[0].endMinutes < lunchPeak.endMinutes ||
-    segments[1].startMinutes > eveningPeak.startMinutes ||
-    segments[1].endMinutes < eveningPeak.endMinutes ||
-    segments[0].endMinutes > segments[1].startMinutes
-  ) {
-    return null;
-  }
-
-  return {
-    id: nextShiftId(),
-    employeeId: employee.id,
-    date: isoDate,
-    startMinutes: segments[0].startMinutes,
-    endMinutes: segments[1].endMinutes,
-    pauseMinutes: 0,
-    segments,
-    paidMinutes,
-    shiftType: "CUSTOM",
-    generated: true,
-  };
-}
-
-function vietphoCandidates(
-  state: SchedulerState,
-  employee: Employee,
-  isoDate: string,
-  paidMinutes: number,
-): Shift[] {
-  const blocks = state.dayOf(isoDate).blocks;
-  const candidates = [
-    makeShift(state, employee, isoDate, paidMinutes, "EARLY"),
-    makeShift(state, employee, isoDate, paidMinutes, "LATE"),
-  ];
-  const split = customVietphoSplitShift(employee, isoDate, paidMinutes, blocks);
-  if (split) candidates.push(split);
-
-  const presence = presenceFromPaid(paidMinutes);
-  const alignments = vietphoPeakIntervals().flatMap((peak) => [
-    peak.startMinutes,
-    peak.endMinutes - presence,
-  ]);
-  for (const block of blocks) {
-    for (const startMinutes of [block.startMinutes, block.endMinutes - presence, ...alignments]) {
-      if (startMinutes < block.startMinutes || startMinutes + presence > block.endMinutes) continue;
-      candidates.push(
-        customContinuousShift(employee, isoDate, paidMinutes, startMinutes),
-      );
-    }
-  }
-
-  const unique = new Map<string, Shift>();
-  for (const candidate of candidates) {
-    const segments = (candidate.segments ?? [candidate])
-      .map((segment) => `${segment.startMinutes}-${segment.endMinutes}`)
-      .join("|");
-    unique.set(segments, candidate);
-  }
-  return [...unique.values()];
-}
-
-function makeVietphoDemandAwareShift(
-  state: SchedulerState,
-  employee: Employee,
-  isoDate: string,
-  paidMinutes: number,
-): Shift {
-  const demand = vietphoDemandOf(state, isoDate) ?? [];
-  const peakDemand = vietphoPeakDemand(state, isoDate);
-  const existing = vietphoShiftsOnDate(state, isoDate);
-  const candidates = vietphoCandidates(state, employee, isoDate, paidMinutes);
-
-  return candidates.reduce((best, candidate) => {
-    const bestScore =
-      demandCoverageGain(best, existing, demand) +
-      demandCoverageGain(best, existing, peakDemand) * 8;
-    const candidateScore =
-      demandCoverageGain(candidate, existing, demand) +
-      demandCoverageGain(candidate, existing, peakDemand) * 8;
-    return candidateScore > bestScore ? candidate : best;
-  });
-}
-
-function shiftCoversInterval(
-  shift: Shift,
-  interval: { startMinutes: number; endMinutes: number },
-): boolean {
-  return (shift.segments ?? [shift]).some(
-    (segment) =>
-      segment.startMinutes <= interval.startMinutes &&
-      segment.endMinutes >= interval.endMinutes,
-  );
-}
-
-function replaceShiftPlacement(state: SchedulerState, shift: Shift, candidate: Shift): void {
-  const ds = state.dateState.get(shift.date)!;
-  if (shift.shiftType === "LATE") ds.latePaid -= shift.paidMinutes;
-  shift.startMinutes = candidate.startMinutes;
-  shift.endMinutes = candidate.endMinutes;
-  shift.pauseMinutes = candidate.pauseMinutes;
-  shift.shiftType = candidate.shiftType;
-  if (candidate.segments) shift.segments = candidate.segments;
-  else delete shift.segments;
-  if (shift.shiftType === "LATE") ds.latePaid += shift.paidMinutes;
-}
-
-/** Repositions existing Vietpho shifts without changing dates or paid hours. */
-function balanceVietphoPeaks(state: SchedulerState): void {
-  for (const isoDate of state.dates) {
-    const peaks = vietphoPeakDemand(state, isoDate).map((peak) => ({
-      startMinutes: peak.startMinutes,
-      endMinutes: peak.endMinutes,
-      minStaff: Math.round(peak.personMinutes / (peak.endMinutes - peak.startMinutes)),
-    }));
-    const onDay = state.shifts.filter((shift) => shift.date === isoDate);
-    if (peaks.length === 0 || onDay.length === 0) continue;
-
-    const count = (peak: (typeof peaks)[number], without?: Shift, withShift?: Shift) =>
-      onDay.reduce(
-        (total, shift) =>
-          total + (shift !== without && shiftCoversInterval(shift, peak) ? 1 : 0),
-        withShift && shiftCoversInterval(withShift, peak) ? 1 : 0,
-      );
-
-    for (const peak of peaks) {
-      while (count(peak) < peak.minStaff) {
-        let best: { shift: Shift; candidate: Shift; score: number } | null = null;
-        for (const shift of onDay) {
-          if (shiftCoversInterval(shift, peak)) continue;
-          const employee = state.employeesById.get(shift.employeeId)!;
-          for (const candidate of vietphoCandidates(
-            state,
-            employee,
-            isoDate,
-            shift.paidMinutes,
-          )) {
-            if (!shiftCoversInterval(candidate, peak)) continue;
-            const preservesCoveredPeaks = peaks.every(
-              (otherPeak) =>
-                count(otherPeak) < otherPeak.minStaff ||
-                count(otherPeak, shift, candidate) >= otherPeak.minStaff,
-            );
-            if (!preservesCoveredPeaks) continue;
-            const score = peaks.reduce(
-              (total, otherPeak) => total + count(otherPeak, shift, candidate),
-              0,
-            );
-            if (!best || score > best.score) best = { shift, candidate, score };
-          }
-        }
-        if (!best) break;
-        replaceShiftPlacement(state, best.shift, best.candidate);
-      }
-    }
-  }
-}
-
 /** Pick the placement that closes the largest uncovered Kitchen/Service gap. */
 function makeRoleAwareShift(
   state: SchedulerState,
@@ -866,9 +605,6 @@ function makeRoleAwareShift(
   isoDate: string,
   paidMinutes: number,
 ): Shift {
-  if (state.isVietpho) {
-    return makeVietphoDemandAwareShift(state, employee, isoDate, paidMinutes);
-  }
   const demand = roleDemandOf(state, employee, isoDate);
   if (!demand) return makeShift(state, employee, isoDate, paidMinutes);
 
@@ -885,12 +621,6 @@ function makeRoleAwareShift(
 }
 
 function roleGapHours(state: SchedulerState, employee: Employee, isoDate: string): number {
-  if (state.isVietpho) {
-    const existing = vietphoShiftsOnDate(state, isoDate);
-    const demandGap = demandCoverageGap(existing, vietphoDemandOf(state, isoDate) ?? []);
-    const peakGap = demandCoverageGap(existing, vietphoPeakDemand(state, isoDate));
-    return (demandGap + peakGap * 8) / 60;
-  }
   const demand = roleDemandOf(state, employee, isoDate);
   if (!demand) return 0;
   return demandCoverageGap(roleShiftsOnDate(state, employee, isoDate), demand) / 60;
@@ -966,7 +696,7 @@ function desiredWeeklyDayCap(state: SchedulerState, employee: Employee): number 
   }
   const numWeeks = Math.max(1, weekKeys.size);
   const weeklyNeed = employee.targetMinutes / numWeeks;
-  const maxDay = state.isVietpho ? 8 * 60 : MAX_DAILY_MINUTES;
+  const maxDay = MAX_DAILY_MINUTES;
 
   // ±1 Tag Toleranz: N Tage, wenn das Soll passt; sonst N+1; sonst kein Limit.
   if (weeklyNeed <= n * maxDay) return n;
@@ -1407,7 +1137,6 @@ function placeOneShift(state: SchedulerState, employee: Employee): boolean {
 
     // Azubi-Wochendecke: was in dieser Woche noch frei ist.
     let dayCapMinutes = maxPaidForDay(day);
-    if (state.isVietpho) dayCapMinutes = Math.min(dayCapMinutes, 8 * 60);
     if (weekCap !== null) {
       const free = weekCap - (weekUsed.get(weekKey) ?? 0);
       if (free <= 0) continue; // Woche ist voll
@@ -1415,7 +1144,7 @@ function placeOneShift(state: SchedulerState, employee: Employee): boolean {
     }
 
     // Längste Schicht, die ins Fenster passt UND den Rest exakt aufteilbar lässt.
-    const profile = state.isVietpho ? "vietpho" : state.isThienlong ? "thienlong" : "default";
+    const profile = state.isThienlong ? "thienlong" : "default";
     const pacedWeight = planned !== null
       ? thienlongDateWeight(isoDate, state.holidays.has(isoDate))
       : 1;
@@ -1459,12 +1188,7 @@ function placeOneShift(state: SchedulerState, employee: Employee): boolean {
       : (state.rawTarget.get(isoDate)! - ds.totalPaid) / 60;
     const dayWeight = state.isThienlong
       ? thienlongDateWeight(isoDate, state.holidays.has(isoDate))
-      : state.isVietpho
-        ? vietphoDemandWeight(
-            weekdayKeyOf(parseIsoDate(isoDate)),
-            state.holidays.has(isoDate),
-          )
-        : DAY_WEIGHTS[state.effKeyOf(isoDate)];
+      : DAY_WEIGHTS[state.effKeyOf(isoDate)];
     const uncoveredRoleHours = roleGapHours(state, employee, isoDate);
     const staffingGap = staffingProfile && state.useThienlongStaffingCounts
       ? Math.max(0, staffingProfile.minStaff - ds.count)
@@ -1563,7 +1287,7 @@ function extendExistingShiftsToTargets(
         .map((shift) => {
           const dayCapacity = Math.min(
             maxPaidForDay(state.dayOf(shift.date)),
-            state.isVietpho ? 8 * 60 : MAX_DAILY_MINUTES,
+            MAX_DAILY_MINUTES,
             ownShiftRangeMinutes(employee)?.max ?? Infinity,
           );
           const weekCap = weeklyCapMinutes(employee);
@@ -3107,7 +2831,6 @@ function repairRoleCoverage(state: SchedulerState): void {
  * dünn besetzten Tagen (zu wenig Personal) bleibt die Warnung bewusst stehen.
  */
 function repairOpeningCount(state: SchedulerState): void {
-  if (state.isVietpho) return; // Vietpho hat eigene Peak-Validierung, keine Öffner-Regel
   const roleOf = (shift: Shift): WorkRole | undefined =>
     state.employeesById.get(shift.employeeId)?.workRole;
   const segmentsOf = (shift: Shift) =>
@@ -3170,7 +2893,6 @@ function repairOpeningCount(state: SchedulerState): void {
  * bleiben und (c) die Schicht abends wirklich zählt.
  */
 function repairEveningPeak(state: SchedulerState): void {
-  if (state.isVietpho) return;
   const segmentsOf = (s: Shift) =>
     s.segments ?? [{ startMinutes: s.startMinutes, endMinutes: s.endMinutes }];
   const roleOf = (s: Shift): WorkRole | undefined =>
@@ -3317,7 +3039,6 @@ export function generateSchedule(input: GenerateInput): Shift[] {
   const holidays = input.holidays ?? holidaysOf(year, input.holidayState ?? "BW");
   const overrides = input.overrides ?? {};
   const isThienlong = input.storeId === "thienlong";
-  const isVietpho = input.storeId === "vietpho";
 
   const effKeyOf = (isoDate: string): WeekdayKey => effectiveWeekdayKey(isoDate, holidays);
   const dayOf = (isoDate: string): ResolvedDay => resolveDay(workHours, isoDate, holidays, overrides);
@@ -3326,12 +3047,7 @@ export function generateSchedule(input: GenerateInput): Shift[] {
     if (dayOf(isoDate).closed) return 0;
     return isThienlong
       ? thienlongDateWeight(isoDate, holidays.has(isoDate))
-      : isVietpho
-        ? vietphoDemandWeight(
-            weekdayKeyOf(parseIsoDate(isoDate)),
-            holidays.has(isoDate),
-          )
-        : DAY_WEIGHTS[effKeyOf(isoDate)];
+      : DAY_WEIGHTS[effKeyOf(isoDate)];
   };
   const lateRatioOf = (isoDate: string): number =>
     isThienlong
@@ -3339,12 +3055,7 @@ export function generateSchedule(input: GenerateInput): Shift[] {
           weekdayKeyOf(parseIsoDate(isoDate)),
           holidays.has(isoDate),
         )
-      : isVietpho
-        ? vietphoLateShiftRatio(
-            weekdayKeyOf(parseIsoDate(isoDate)),
-            holidays.has(isoDate),
-          )
-        : LATE_SHIFT_RATIOS[effKeyOf(isoDate)];
+      : LATE_SHIFT_RATIOS[effKeyOf(isoDate)];
 
   const dates = datesOfMonth(year, month);
   const totalTargetMin = employees.reduce((sum, e) => sum + e.targetMinutes, 0);
@@ -3439,7 +3150,6 @@ export function generateSchedule(input: GenerateInput): Shift[] {
       holidays,
       employeesById,
       isThienlong,
-      isVietpho,
       useThienlongStaffingBands,
       useThienlongStaffingCounts,
       dayOf,
@@ -3547,8 +3257,7 @@ export function generateSchedule(input: GenerateInput): Shift[] {
   if (state.isThienlong && (state.useThienlongStaffingBands || state.useThienlongStaffingCounts)) {
     repairThienlongStaffing(state);
   }
-  if (state.isVietpho) balanceVietphoPeaks(state);
-  else balanceShiftTypes(state);
+  balanceShiftTypes(state);
   // Jede Rolle kommt an jedem offenen Tag mindestens einmal vor.
   repairRoleDayPresence(state);
   // Harte Regel zuletzt: jede Rolle deckt Öffnung UND Schluss ab.

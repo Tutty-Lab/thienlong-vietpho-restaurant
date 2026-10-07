@@ -14,7 +14,6 @@ import { maxConsecutiveRun } from "./consecutive";
 import { datesOfMonth, parseIsoDate, weekdayKeyOf } from "./demand";
 import { holidaysOf, type HolidayState } from "./holidays";
 import { resolveDay, type OverrideMap, type WorkHoursConfig } from "./workHours";
-import { vietphoPeakIntervals } from "./vietphoDemand";
 import { isEmployeeFixedDayOff } from "./fixedDaysOff";
 import { unavailableReason } from "./availability";
 import { azubiMonthCapacityBreakdown, type AzubiWeekCapacity } from "./scheduler";
@@ -283,35 +282,6 @@ export function validateSchedule(
     for (const date of datesOfMonth(context.year, context.month)) {
       const day = resolveDay(context.workHours, date, holidays, context.overrides);
       if (day.closed) continue;
-
-      if (context.storeId === "vietpho") {
-        for (const peak of vietphoPeakIntervals()) {
-          const existsInWorkHours = day.blocks.some(
-            (block) =>
-              block.startMinutes <= peak.startMinutes && block.endMinutes >= peak.endMinutes,
-          );
-          if (!existsInWorkHours) continue;
-          const coveringCount = shifts.filter((shift) => {
-            if (shift.date !== date) return false;
-            return (shift.segments ?? [shift]).some(
-              (segment) =>
-                segment.startMinutes <= peak.startMinutes && segment.endMinutes >= peak.endMinutes,
-            );
-          }).length;
-          if (coveringCount < peak.minStaff) {
-            errors.push({
-              date,
-              kind: "coverage",
-              suggestion: "Dời một ca vào khung giờ cao điểm này hoặc kéo dài ca.",
-              message:
-                `Ngày ${date}: cần ít nhất ${peak.minStaff} nhân viên trong giờ cao điểm ` +
-                `${minutesToTime(peak.startMinutes)}–${minutesToTime(peak.endMinutes)} ` +
-                `(hiện có ${coveringCount}).`,
-            });
-          }
-        }
-        continue;
-      }
 
       // Thienlong: Bếp/Bồi-Regeln (Lücke, Fr/Sa/So-Mindestbesetzung, Abend ≥ Mittag)
       // – gleiche Rechnung wie im Planer (roleCoverage.ts), inkl. Rollenwechsel.

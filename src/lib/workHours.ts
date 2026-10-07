@@ -47,10 +47,6 @@ const SPLIT_DAY: DayBlocks = [w(10 * 60 + 30, 15 * 60), w(16 * 60 + 30, 22 * 60)
 const FRIDAY: DayBlocks = [w(10 * 60 + 30, 22 * 60)];
 const WEEKEND: DayBlocks = [w(11 * 60 + 30, 22 * 60)];
 
-// Vietpho needs no preparation window: staff starts when the restaurant opens.
-const VIETPHO_SPLIT_DAY: DayBlocks = [w(11 * 60, 15 * 60), w(17 * 60, 22 * 60)];
-const VIETPHO_FRIDAY: DayBlocks = [w(11 * 60, 22 * 60)];
-const VIETPHO_WEEKEND: DayBlocks = [w(12 * 60, 22 * 60)];
 
 const clone = (blocks: DayBlocks): DayBlocks => blocks.map((b) => ({ ...b }));
 
@@ -62,10 +58,10 @@ const clone = (blocks: DayBlocks): DayBlocks => blocks.map((b) => ({ ...b }));
  * genau das war passiert (Mo–Do ohne Mittagsschließung, Sa ab 11:00 statt 12:00).
  */
 export const WORK_HOURS_VERSION = 3;
-export const VIETPHO_WORK_HOURS_VERSION = 4;
 
 export function workHoursVersionForStore(storeId: string): number {
-  return storeId === "vietpho" ? VIETPHO_WORK_HOURS_VERSION : WORK_HOURS_VERSION;
+  void storeId;
+  return WORK_HOURS_VERSION;
 }
 
 export const DEFAULT_WORK_HOURS: WorkHoursConfig = {
@@ -81,21 +77,9 @@ export const DEFAULT_WORK_HOURS: WorkHoursConfig = {
   holiday: clone(WEEKEND),
 };
 
-export const VIETPHO_WORK_HOURS: WorkHoursConfig = {
-  perWeekday: {
-    monday: clone(VIETPHO_SPLIT_DAY),
-    tuesday: clone(VIETPHO_SPLIT_DAY),
-    wednesday: clone(VIETPHO_SPLIT_DAY),
-    thursday: clone(VIETPHO_SPLIT_DAY),
-    friday: clone(VIETPHO_FRIDAY),
-    saturday: clone(VIETPHO_WEEKEND),
-    sunday: clone(VIETPHO_WEEKEND),
-  },
-  holiday: clone(VIETPHO_WEEKEND),
-};
-
 export function defaultWorkHoursForStore(storeId: string): WorkHoursConfig {
-  const source = storeId === "vietpho" ? VIETPHO_WORK_HOURS : DEFAULT_WORK_HOURS;
+  void storeId;
+  const source = DEFAULT_WORK_HOURS;
   return {
     perWeekday: Object.fromEntries(
       Object.entries(source.perWeekday).map(([key, blocks]) => [key, clone(blocks)]),

@@ -251,7 +251,7 @@ export function useSchedule() {
     () =>
       checkScheduleReadiness(schedule.employees, {
         requireWorkRole: storeId === "thienlong",
-        requireFixedDaysOff: storeId === "thienlong" || storeId === "vietpho",
+        requireFixedDaysOff: storeId === "thienlong",
         storeId,
         year: schedule.year,
         month: schedule.month,
